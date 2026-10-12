@@ -250,7 +250,7 @@ class DataApiTests(unittest.TestCase):
         self.assertIn("swagger-ui", docs.text)
         schema = self.client.get("/openapi.json")
         self.assertEqual(schema.status_code, 200)
-        self.assertEqual(set(schema.json()["paths"]), {"/api/data", "/api/data/{id}", "/api/data/summary"})
+        self.assertEqual({path for path in schema.json()["paths"] if path.startswith("/api/data")}, {"/api/data", "/api/data/{id}", "/api/data/summary"})
         self.assertEqual(set(schema.json()["paths"]["/api/data"]), {"post", "get"})
         self.assertEqual(set(schema.json()["paths"]["/api/data/{id}"]), {"put", "delete"})
         self.connection.assert_not_called()

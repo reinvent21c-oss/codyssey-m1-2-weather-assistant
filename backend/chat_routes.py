@@ -1,0 +1,83 @@
+"""Chat and conversation endpoints; providers are initialized only on requests."""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+from pydantic import UUID4
+
+from backend.conversation_schemas import (
+    ChatRequest, ChatResponse, ConversationDeleted, ConversationDetail, ConversationInfo,
+    MAX_REPLY_CHARS, Message,
+)
+from backend.conversation_service import ConversationService, check_capacity
+from backend.firebase import get_firestore_client
+from backend.gpt_service import GPTService
+from backend.services import DataService, StorageUnavailable
+
+
+router = APIRouter(prefix="/api", tags=["conversations"])
+
+
+def get_client():
+    try:
+        return get_firestore_client()
+    except Exception:
+        raise StorageUnavailable() from None
+
+
+Client = Annotated[object, Depends(get_client)]
+
+
+def get_conversation_service(client: Client):
+    return ConversationService(client)
+
+
+def get_summary_service(client: Client):
+    return DataService(client)
+
+
+def get_gpt_service():
+    return GPTService()
+
+
+Conversations = Annotated[ConversationService, Depends(get_conversation_service)]
+Summary = Annotated[DataService, Depends(get_summary_service)]
+Model = Annotated[GPTService, Depends(get_gpt_service)]
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest, conversations: Conversations, data: Summary, model: Model):
+    history = conversations.get(request.conversation_id).messages if request.conversation_id else []
+    check_capacity(history, request.question, "x" * MAX_REPLY_CHARS)
+    answer = model.answer(request.question, history, data.summary())
+    if request.conversation_id:
+        conversations.append_pair(request.conversation_id, request.question, answer)
+        document_id = request.conversation_id
+    else:
+        document = conversations.create([
+            Message(role="user", content=request.question), Message(role="assistant", content=answer),
+        ])
+        document_id = document.id
+    return ChatResponse(conversation_id=document_id, response=answer)
+
+
+@router.post("/conversations", response_model=ConversationInfo, status_code=201)
+def create_conversation(conversations: Conversations):
+    document = conversations.create()
+    return ConversationInfo(id=document.id, created_at=document.created_at, updated_at=document.updated_at, message_count=0)
+
+
+@router.get("/conversations", response_model=list[ConversationInfo])
+def list_conversations(conversations: Conversations):
+    return conversations.list_conversations()
+
+
+@router.get("/conversations/{id}", response_model=ConversationDetail)
+def get_conversation(id: UUID4, conversations: Conversations):
+    return conversations.get(id)
+
+
+@router.delete("/conversations/{id}", response_model=ConversationDeleted)
+def delete_conversation(id: UUID4, conversations: Conversations):
+    conversations.delete(id)
+    return ConversationDeleted(id=id, deleted=True)

@@ -11,6 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.routes import router
+from backend.chat_routes import router as chat_router
+from backend.conversation_service import ConversationLimitReached, ConversationNotFound
+from backend.gpt_service import ModelTimedOut, ModelUnavailable
 from backend.services import DataNotFound, DuplicateData, StorageUnavailable
 
 
@@ -40,6 +43,23 @@ def create_app():
         allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type"],
     )
     app.include_router(router)
+    app.include_router(chat_router)
+
+    @app.exception_handler(ConversationNotFound)
+    async def conversation_missing(request: Request, exc: ConversationNotFound):
+        return JSONResponse(status_code=404, content={"detail": "Conversation not found."})
+
+    @app.exception_handler(ConversationLimitReached)
+    async def conversation_full(request: Request, exc: ConversationLimitReached):
+        return JSONResponse(status_code=409, content={"detail": "Conversation limit reached; start a new conversation."})
+
+    @app.exception_handler(ModelUnavailable)
+    async def model_unavailable(request: Request, exc: ModelUnavailable):
+        return JSONResponse(status_code=502, content={"detail": "AI response is unavailable."})
+
+    @app.exception_handler(ModelTimedOut)
+    async def model_timeout(request: Request, exc: ModelTimedOut):
+        return JSONResponse(status_code=504, content={"detail": "AI request timed out."})
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
