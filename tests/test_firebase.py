@@ -16,7 +16,7 @@ from backend import firebase
 # Deliberately not a usable private key; Certificate is mocked in every test.
 TEST_ACCOUNT = {
     "type": "service_account",
-    "project_id": "test-source-project",
+    "project_id": "actual-target-project",
     "private_key": "TEST_ONLY_NOT_A_KEY",
     "client_email": "offline@example.invalid",
     "token_uri": "https://example.invalid/token",
@@ -45,6 +45,15 @@ class FirebaseTests(unittest.TestCase):
         del os.environ["FIREBASE_PROJECT_ID"]
         with self.assertRaisesRegex(firebase.FirebaseConfigurationError, "FIREBASE_PROJECT_ID is required"):
             firebase.get_firebase_app()
+        self.initialize.assert_not_called()
+
+    def test_project_id_mismatch(self):
+        os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"] = json.dumps(
+            {**TEST_ACCOUNT, "project_id": "different-project"}
+        )
+        with self.assertRaisesRegex(firebase.FirebaseConfigurationError, "project IDs do not match"):
+            firebase.get_firebase_app()
+        self.certificate.assert_not_called()
         self.initialize.assert_not_called()
 
     def test_malformed_json_does_not_fall_back_to_file(self):
