@@ -55,6 +55,8 @@ def _read_configuration():
         or any(not isinstance(account.get(key), str) or not account[key].strip() for key in fields)
     ):
         raise FirebaseConfigurationError("Service account JSON has an invalid structure.")
+    if account["project_id"] != project_id:
+        raise FirebaseConfigurationError("Firebase project IDs do not match.")
     return project_id, account
 
 
