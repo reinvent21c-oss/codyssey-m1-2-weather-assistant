@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/reinvent21c-oss/codyssey-m1-weather-analysis",
+  "commit": "b1648f9792b57c23102f659a1cefcee760dfc18a",
+  "path": "data/seoul_daily_temperature_2023_2026.csv",
+  "encoding": "cp949",
+  "sha256": "5e00a33c9b18ac088f8d360bff5aae10fb97e592662ea791771b23440f38c367"
+}
