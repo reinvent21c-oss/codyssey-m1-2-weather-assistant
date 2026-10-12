@@ -1,0 +1,10 @@
+{
+  "name": "codyssey-weather-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/api.test.js",
+    "test:browser": "node --test tests/browser.test.js"
+  },
+  "devDependencies": { "playwright": "1.57.0" }
+}

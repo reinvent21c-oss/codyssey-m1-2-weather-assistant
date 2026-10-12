@@ -233,3 +233,58 @@ OpenAI SDK와 Firestore는 Mock이며 실제 키·외부 요청·토큰 소비 �
 검증합니다. 실제 인증·원격 API 호환성·Firestore 트랜잭션·모델 답변 품질·비용은
 미검증입니다. 인증 없는 채팅·쓰기 API는 외부에 배포하지 않으며, CORS를 인증이나
 대화 소유권 보호로 간주하지 않습니다. 운영 전 인증·대화 접근 권한을 별도 검토해야 합니다.
+
+## 프론트엔드 MVP (작업 06)
+
+`frontend/`는 HTML·CSS·Vanilla JavaScript 정적 화면입니다. 실행에 Node 패키지나
+프레임워크 빌드가 필요하지 않습니다. 저장소 루트에서 다음 명령으로 로컬에서만 제공합니다.
+
+```bash
+python3 -m http.server 5173 --bind 127.0.0.1 --directory frontend
+```
+
+브라우저에서 `http://127.0.0.1:5173`을 엽니다. `file://`로 직접 열지 마세요.
+`frontend/config.js`의 공개 `API_BASE_URL`만 FastAPI 서버 주소로 변경합니다.
+기본 주소는 `http://127.0.0.1:8000`이며 `/api`를 붙이지 않습니다.
+이 설정에는 키나 인증정보를 넣지 않습니다. 브라우저는 기존 FastAPI API 10개만 호출하고
+Firebase·Codyssey GPT API를 직접 호출하지 않습니다. `localhost`와 `127.0.0.1`은
+서로 다른 origin이므로 실제 접속한 주소와 백엔드 `ALLOWED_ORIGINS`를 일치시켜야 합니다.
+예: `ALLOWED_ORIGINS=http://127.0.0.1:5173`. 백엔드 프로세스 재시작 후 적용됩니다.
+HTTPS 화면에서는 HTTPS 백엔드 주소를 사용해야 합니다.
+
+채팅, 새 대화·이전 대화 조회·삭제, 날짜순 데이터 CRUD, 서버 요약을 제공합니다.
+전송 중에는 중복 전송과 대화 변경을 막고 실패 시 질문을 보존합니다.
+삭제에는 확인 창이 있으며 수정 중 날짜는 변경할 수 없습니다.
+요청 시간 초과·저장 오류는 저장 여부를 확인한 뒤 수동 재시도하도록 안내합니다.
+응답을 자동 재시도하지 않습니다. 오류 응답의 내부 상세는 화면에 표시하지 않습니다.
+실시간 날씨는 표시하지 않으며 자료 없음·추세 판단 불가 상태를 구분합니다.
+외부 응답은 `textContent`로 표시하고 HTML·Markdown을 실행하지 않습니다.
+
+테스트 준비·실행:
+
+```bash
+cd frontend
+npm ci
+npm test
+npx playwright install chromium
+npm run test:browser
+```
+
+이미 Chromium이 설치되어 있으면 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 환경 변수에 실행
+파일 경로를 지정할 수 있습니다. Playwright는 테스트용 의존성이며 화면 실행에는 불필요합니다.
+브라우저 테스트는 임시 로컬 정적 서버와 HTTP 응답 Mock만 사용합니다. 외부 요청은 차단하고
+테스트 화면에 Mock 표시를 넣습니다. 테스트용 응답은 `frontend/tests/`에만 있으며,
+제품 화면에는 Mock 모드가 없습니다. 스크린샷은 Git에서 제외되는 `frontend/test-results/`에
+저장됩니다. Chromium PC·모바일 렌더링, 요청 방식, 빈 상태·오류, 키보드 전송, 삭제 확인,
+중복 전송 차단과 XSS 방지를 검증합니다. 실제 서비스 연결·응답 품질은 미검증입니다.
+
+이번 작업의 Python 회귀 검증은 실제 데이터 사용 금지에 따라 아래 Mock 테스트 66개를
+실행합니다. 실제 CSV를 읽는 적재 테스트 24개는 실행하지 않으며 해당 코드·입력은 그대로입니다.
+
+```bash
+.venv/bin/python -m unittest tests.test_firebase tests.test_data_api tests.test_chat_api -q
+```
+
+향후 정적 호스팅은 `frontend/`를 대상으로 빌드 없이 구성할 수 있지만 이번에는 Vercel 등
+공개 배포를 하지 않습니다. 현재 API에는 공개 사용자 인증·대화 소유권 보호가 없으며,
+CORS는 인증 기능이 아닙니다. 실제 키·Firestore 연결·GPT 호출도 이번 검증에 사용하지 않습니다.

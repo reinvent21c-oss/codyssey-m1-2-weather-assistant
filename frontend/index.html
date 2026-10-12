@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="기온 데이터를 참고해 외출 준비를 도와주는 AI 비서">
+  <title>오늘 뭐 챙기지?</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 이동</a>
+  <div class="shell">
+    <header class="header">
+      <a class="brand" href="./"><span class="brand-mark" aria-hidden="true">챙</span><span>오늘 뭐 챙기지?<small>외출 준비, 함께 생각해요</small></span></a>
+      <span class="badge">서울 · 과거 관측 자료</span>
+    </header>
+    <div class="notice"><strong>과거 기온을 참고하는 서비스예요.</strong> 실시간 기온·강수 정보나 미래 예보는 제공하지 않습니다.</div>
+    <main id="main" class="layout">
+      <div class="workspace">
+        <nav class="tabs" aria-label="주요 화면">
+          <button id="chat-tab" class="tab active" aria-current="page" type="button">AI 채팅</button>
+          <button id="data-tab" class="tab" type="button">기온 데이터 관리</button>
+        </nav>
+        <section id="chat-panel" class="panel" aria-labelledby="chat-heading">
+          <div class="section-head"><div><p class="eyebrow">서울 외출 준비 비서</p><h1 id="chat-heading">외출 준비를 이야기해 보세요</h1><p class="muted">기온 데이터를 참고해 외출 준비를 도와주는 AI 비서</p></div><button id="new-conversation" class="button secondary" type="button">새 대화</button></div>
+          <p id="conversation-state" class="muted small">새 질문을 보내면 대화가 저장됩니다.</p>
+          <div id="messages" class="messages" role="log" aria-label="채팅 메시지" aria-live="polite" aria-relevant="additions text"></div>
+          <p id="chat-status" class="status" role="status" aria-live="polite"></p>
+          <form id="chat-form" class="chat-form">
+            <label for="question">외출 준비에 관해 질문해 주세요</label>
+            <textarea id="question" name="question" rows="3" maxlength="2000" required placeholder="기온 자료를 참고하면 어떤 옷을 준비하면 좋을까요?"></textarea>
+            <div class="form-footer"><span class="muted small">최대 2,000자 · Enter 줄바꿈 · Ctrl/⌘+Enter 전송</span><button id="send" class="button primary" type="submit">질문 보내기</button></div>
+          </form>
+        </section>
+        <section id="data-panel" class="panel" aria-labelledby="data-heading" hidden>
+          <div class="section-head"><div><p class="eyebrow">과거 관측 기온 기록</p><h1 id="data-heading">기온 데이터 관리</h1><p class="muted">서울 관측지점 108의 과거 일평균기온 자료</p></div><button id="refresh-data" class="button secondary" type="button">새로고침</button></div>
+          <form id="data-form" class="data-form">
+            <h2 id="data-form-heading">새 데이터 추가</h2>
+            <div class="field-row"><div><label for="record-date">관측 날짜</label><input id="record-date" type="date" required></div><div><label for="record-value">일평균기온 (°C)</label><input id="record-value" type="number" step="any" required placeholder="음수와 0도 입력 가능"></div></div>
+            <label for="record-memo">메모</label><input id="record-memo" type="text" value="서울 관측지점 108 평균기온(°C)">
+            <div class="form-footer"><button id="cancel-edit" class="button secondary" type="button" hidden>수정 취소</button><button id="save-data" class="button primary" type="submit">추가하기</button></div>
+          </form>
+          <p id="data-status" class="status" role="status" aria-live="polite"></p>
+          <ul id="data-list" class="data-list" aria-label="날짜순 기온 데이터"></ul>
+        </section>
+      </div>
+      <aside class="sidebar">
+        <section class="panel summary" aria-labelledby="summary-heading"><div class="section-head"><h2 id="summary-heading">기온 자료 한눈에</h2><button id="refresh-summary" class="text-button" type="button">새로고침</button></div><p class="muted small">서울 과거 일평균기온 · 실시간 날씨 아님</p><p id="summary-status" class="status" role="status"></p><div id="summary-content"></div></section>
+        <section class="panel history" aria-labelledby="history-heading"><div class="section-head"><h2 id="history-heading">이전 대화</h2><button id="refresh-conversations" class="text-button" type="button">새로고침</button></div><p id="history-status" class="status" role="status"></p><ul id="conversation-list" class="conversation-list" aria-label="최근 대화 목록"></ul></section>
+      </aside>
+    </main>
+    <footer>확인된 자료 안에서 준비하세요. 현재 날씨가 필요하면 실시간 정보를 별도로 확인해 주세요.</footer>
+  </div>
+</body>
+</html>
