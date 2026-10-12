@@ -1,0 +1,17 @@
+{
+  "source_sha256": "5e00a33c9b18ac088f8d360bff5aae10fb97e592662ea791771b23440f38c367",
+  "source_encoding": "cp949",
+  "output_encoding": "utf-8",
+  "station": 108,
+  "start": "2025-10-01",
+  "end": "2026-09-30",
+  "rows": 365,
+  "duplicate_dates": 0,
+  "missing_dates": 0,
+  "missing_temperatures": 0,
+  "mean_celsius": "14.23863013698630136986301370",
+  "mean_celsius_rounded": "14.24",
+  "min_celsius": "-9.7",
+  "max_celsius": "33.1",
+  "matches_expected_statistics": true
+}
