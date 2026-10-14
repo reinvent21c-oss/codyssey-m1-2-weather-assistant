@@ -11,6 +11,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
 const malicious = '<img src=x onerror="window.XSS_EXECUTED=true">';
+const TEST_CODE = "TEST_ONLY_EVALUATION_CODE";
 
 before(async () => {
   await mkdir(`${root}test-results`, { recursive: true });
@@ -26,7 +27,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0 } = {}) {
+async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true } = {}) {
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 } });
   const page = await context.newPage(); const errors = []; const calls = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -41,8 +42,15 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
     if (url.origin === origin) return route.continue();
     if (url.origin !== "http://127.0.0.1:8000") { errors.push(`Unexpected external request: ${url.origin}`); return route.abort(); }
     const method = request.method(); const path = url.pathname; const body = request.postDataJSON(); calls.push({ method, path, body });
+    assert(!request.url().includes(TEST_CODE));
+    const suppliedCode = request.headers()["x-evaluation-code"];
+    if (suppliedCode !== TEST_CODE) {
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Evaluation access denied." }), headers: { "Access-Control-Allow-Origin": origin } });
+      return;
+    }
     let result; let status = 200;
-    if (path === "/api/data/summary") {
+    if (path === "/api/access") result = { authenticated: true };
+    else if (path === "/api/data/summary") {
       const ordered = [...data].sort((a, b) => a.date.localeCompare(b.date)); const values = data.map(record => record.value);
       result = { start_date: ordered[0]?.date ?? null, end_date: ordered.at(-1)?.date ?? null, count: data.length, mean_value: data.length ? values.reduce((sum, value) => sum + value, 0) / data.length : null, min_value: data.length ? Math.min(...values) : null, max_value: data.length ? Math.max(...values) : null, trend: { status: "insufficient_data", threshold_celsius: 0.5, latest_week_mean: null, previous_week_mean: null } };
     } else if (path === "/api/conversations" && method === "GET") result = [...conversations.values()].map(record => ({ ...record, messages: undefined, message_count: record.messages.length })).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
@@ -72,7 +80,12 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
     if (result === undefined) throw new Error(`Unhandled mock request: ${method} ${path}`);
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result), headers: { "Access-Control-Allow-Origin": origin } });
   });
-  await page.goto(origin); await page.waitForFunction(() => !document.getElementById("history-status").textContent.includes("불러오는"));
+  await page.goto(origin);
+  if (authenticate) {
+    await page.locator("#access-code").fill(TEST_CODE); await page.locator("#access-submit").click();
+    await page.waitForSelector("#main:not([hidden])");
+    await page.waitForFunction(() => !document.getElementById("history-status").textContent.includes("불러오는"));
+  }
   return { page, context, errors, calls };
 }
 
@@ -96,6 +109,28 @@ test("desktop: summary, chat loading and duplicate prevention, history and XSS s
     assert.equal(await page.evaluate(() => window.XSS_EXECUTED), undefined);
     await mkdir(`${root}test-results`, { recursive: true }); await page.screenshot({ path: `${root}test-results/desktop.png`, fullPage: true });
     assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test("access gate hides features until verified and forgets code on reload", async () => {
+  const { page, context, calls } = await fixture({ authenticate: false });
+  try {
+    assert.equal(await page.locator("#access-code").getAttribute("type"), "password");
+    assert.equal(await page.locator("#main").isVisible(), false);
+    assert.equal(calls.length, 0);
+    await page.locator("#access-code").fill("WRONG_TEST_CODE"); await page.locator("#access-submit").click();
+    await page.waitForFunction(() => document.getElementById("access-status").classList.contains("error"));
+    assert.match(await page.locator("#access-status").innerText(), /올바르지/);
+    assert.equal(await page.locator("#main").isVisible(), false);
+    assert.equal(await page.locator("#access-code").inputValue(), "");
+    await page.locator("#access-code").fill(TEST_CODE); await page.locator("#access-submit").click();
+    await page.waitForSelector("#main:not([hidden])");
+    assert(!(await page.content()).includes(TEST_CODE));
+    assert(!page.url().includes(TEST_CODE));
+    assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length, cookies: document.cookie })), { local: 0, session: 0, cookies: "" });
+    await page.reload(); await page.waitForSelector("#access-panel:not([hidden])");
+    assert.equal(await page.locator("#main").isVisible(), false);
+    assert.equal(await page.locator("#access-code").inputValue(), "");
   } finally { await context.close(); }
 });
 

@@ -13,7 +13,7 @@ from backend.main import create_app
 
 class DataApiTests(unittest.TestCase):
     def setUp(self):
-        self.enterContext(patch.dict(os.environ, {"ALLOWED_ORIGINS": ""}, clear=True))
+        self.enterContext(patch.dict(os.environ, {"ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
         self.enterContext(patch("backend.main.load_dotenv"))
         self.documents = {}
         self.firestore = Mock()
@@ -24,7 +24,7 @@ class DataApiTests(unittest.TestCase):
         self.transaction.delete.side_effect = lambda reference: self.documents.pop(reference.id)
         self.connection = self.enterContext(patch("backend.routes.get_firestore_client", return_value=self.firestore))
         self.transactional = self.enterContext(patch("backend.services.firestore.transactional", side_effect=lambda function: function))
-        self.client = self.enterContext(TestClient(create_app()))
+        self.client = self.enterContext(TestClient(create_app(), headers={"X-Evaluation-Code": "TEST_ONLY_EVALUATION_CODE"}))
 
     def snapshot(self, document_id):
         result = Mock()

@@ -20,7 +20,7 @@ from backend.main import create_app
 
 class ChatApiTests(unittest.TestCase):
     def setUp(self):
-        self.enterContext(patch.dict(os.environ, {"OPENAI_API_KEY": "TEST_ONLY_NOT_A_KEY", "ALLOWED_ORIGINS": ""}, clear=True))
+        self.enterContext(patch.dict(os.environ, {"OPENAI_API_KEY": "TEST_ONLY_NOT_A_KEY", "ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
         self.enterContext(patch("backend.main.load_dotenv"))
         self.store = {}
         self.data = {
@@ -47,7 +47,7 @@ class ChatApiTests(unittest.TestCase):
         self.sdk = self.enterContext(patch("backend.gpt_service.OpenAI"))
         self.model = self.sdk.return_value.__enter__.return_value
         self.model.chat.completions.create.return_value = Mock(choices=[Mock(message=Mock(content="과거 관측치이므로 현재 날씨도 확인해 주세요."))])
-        self.client = self.enterContext(TestClient(create_app()))
+        self.client = self.enterContext(TestClient(create_app(), headers={"X-Evaluation-Code": "TEST_ONLY_EVALUATION_CODE"}))
 
     def snapshot(self, document_id, source):
         snapshot = Mock()
@@ -344,7 +344,7 @@ class ChatApiTests(unittest.TestCase):
                     response = client.get("/docs")
                     self.assertEqual(response.status_code, 200)
                     paths = client.get("/openapi.json").json()["paths"]
-                    self.assertEqual(sum(len(operations) for operations in paths.values()), 10)
+                    self.assertEqual(sum(len(operations) for operations in paths.values()), 11)
                 sdk.assert_not_called()
                 self.firebase.assert_not_called()
 

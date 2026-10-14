@@ -1,0 +1,8 @@
+node_modules/
+tests/
+test-results/
+.env*
+secrets/
+credentials/
+*service*account*.json
+*firebase*adminsdk*.json

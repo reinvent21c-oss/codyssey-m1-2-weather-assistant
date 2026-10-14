@@ -319,6 +319,13 @@
                                                                                                                                                       background:white;
                                                                                                                                                       padding:10px;
                                                                                                                                                       z-index:1}
+.access-panel {
+  max-width: 520px;
+  margin: 32px auto;
+}
+.access-panel form {
+  margin-top: 20px;
+}
 .temperature-chart {
   margin: 20px 0;
   padding: 16px 0;
