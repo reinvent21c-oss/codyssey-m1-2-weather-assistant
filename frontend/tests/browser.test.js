@@ -28,7 +28,7 @@ before(async () => {
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
 async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true } = {}) {
-  const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 } });
+  const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
   const page = await context.newPage(); const errors = []; const calls = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
@@ -89,6 +89,11 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
   return { page, context, errors, calls };
 }
 
+async function openView(page, view) {
+  const mobile = page.viewportSize().width <= 760;
+  await page.locator(mobile ? `#mobile-${view}` : view === "data" ? "#data-tab" : "#chat-tab").click();
+}
+
 test("desktop: summary, chat loading and duplicate prevention, history and XSS safety", async () => {
   const { page, context, errors, calls } = await fixture();
   try {
@@ -140,13 +145,13 @@ test("mobile: empty states, new conversation, deletion confirmation and layout",
     assert.match(await page.locator("#summary-content").innerText(), /자료가 없어요/);
     assert.match(await page.locator("#conversation-list").innerText(), /저장된 대화가 없어요/);
     await page.screenshot({ path: `${root}test-results/mobile-chat.png`, fullPage: true });
-    await page.locator("#new-conversation").click(); await page.waitForSelector(".conversation-open");
+    await page.locator("#new-conversation").click(); await openView(page, "history"); await page.waitForSelector(".conversation-open");
     assert.equal(calls.filter(call => call.method === "POST" && call.path === "/api/conversations").length, 1);
     page.once("dialog", dialog => dialog.dismiss()); await page.locator("#conversation-list .danger").click();
     assert.equal(calls.filter(call => call.method === "DELETE").length, 0);
     page.once("dialog", dialog => dialog.accept()); await page.locator("#conversation-list .danger").click();
     await page.waitForFunction(() => document.getElementById("conversation-list").textContent.includes("저장된 대화가 없어요"));
-    await page.locator("#data-tab").click(); await page.waitForFunction(() => document.getElementById("data-list").textContent.includes("데이터가 없어요"));
+    await openView(page, "data"); await page.waitForFunction(() => document.getElementById("data-list").textContent.includes("데이터가 없어요"));
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await page.screenshot({ path: `${root}test-results/mobile.png`, fullPage: true }); assert.deepEqual(errors, []);
   } finally { await context.close(); }
@@ -155,7 +160,7 @@ test("mobile: empty states, new conversation, deletion confirmation and layout",
 test("data CRUD uses date IDs and safe memo rendering, refreshes summary", async () => {
   const { page, context, errors, calls } = await fixture();
   try {
-    await page.locator("#data-tab").click(); await page.waitForSelector(".data-row");
+    await openView(page, "data"); await page.waitForSelector(".data-row");
     assert.equal(await page.locator(".record-top").first().innerText(), "2025-10-01\n-1°C");
     assert.equal(await page.locator("#data-list img").count(), 0);
     assert.deepEqual(await page.locator(".chart-point").evaluateAll(nodes => nodes.map(node => [node.dataset.date, node.dataset.value])), [["2025-10-01", "-1"], ["2025-10-02", "0"]]);
@@ -181,7 +186,7 @@ test("data CRUD uses date IDs and safe memo rendering, refreshes summary", async
 test("chart shows gaps, safe SVG, single/zero values and readable mobile labels", async () => {
   const { page, context, errors } = await fixture({ mobile: true, observations: [{ date: "2025-10-03", value: 0, memo: malicious }, { date: "2025-10-01", value: -5, memo: malicious }] });
   try {
-    await page.locator("#data-tab").click(); await page.waitForSelector(".chart-point");
+    await openView(page, "data"); await page.waitForSelector(".chart-point");
     assert.equal(await page.locator(".chart-point").count(), 2);
     assert.equal(await page.locator(".chart-line").count(), 0);
     assert.match(await page.locator("#temperature-chart svg desc").textContent(), /누락 날짜/);
@@ -192,7 +197,7 @@ test("chart shows gaps, safe SVG, single/zero values and readable mobile labels"
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.equal(await page.locator(".chart-label").first().evaluate(node => getComputedStyle(node).fontSize), "14px");
     await page.screenshot({ path: `${root}test-results/chart-mobile.png`, fullPage: true });
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.waitForFunction(() => +document.querySelector("#temperature-chart svg").viewBox.baseVal.width > 480);
     await page.screenshot({ path: `${root}test-results/chart-desktop.png`, fullPage: true });
     assert.deepEqual(errors, []);
@@ -203,7 +208,7 @@ test("chart empty and API-error states do not leave stale observation points", a
   for (const options of [{ empty: true }, { dataReadError: 503 }]) {
     const { page, context } = await fixture(options);
     try {
-      await page.locator("#data-tab").click();
+      await openView(page, "data");
       await page.waitForFunction(() => !document.getElementById("data-status").textContent.includes("불러오는"));
       assert.equal(await page.locator(".chart-point").count(), 0);
       assert.match(await page.locator("#temperature-chart").innerText(), options.empty ? /데이터가 없어/ : /불러오지 못해/);
@@ -216,7 +221,7 @@ test("chart renders 400 observations and a single zero without fabricated values
   for (const observations of [[{ date: "2025-01-01", value: 0, memo: "Mock" }], Array.from({ length: 400 }, (_, index) => ({ date: new Date(Date.UTC(2025, 0, 1) + index * 86400000).toISOString().slice(0, 10), value: index % 30 - 10, memo: "Mock" })).reverse()]) {
     const { page, context, errors } = await fixture({ observations });
     try {
-      await page.locator("#data-tab").click(); await page.waitForSelector(".chart-point");
+      await openView(page, "data"); await page.waitForSelector(".chart-point");
       assert.equal(await page.locator(".chart-point").count(), observations.length);
       assert(!(await page.locator("#temperature-chart svg").getAttribute("viewBox")).includes("NaN"));
       assert.deepEqual(errors, []);
@@ -242,7 +247,7 @@ test("chat failure preserves input, shows retry guidance and never invents a rep
 test("data duplicate shows friendly 409 and retains values", async () => {
   const { page, context, errors } = await fixture({ dataError: 409 });
   try {
-    await page.locator("#data-tab").click(); await page.waitForSelector(".data-row");
+    await openView(page, "data"); await page.waitForSelector(".data-row");
     await page.locator("#record-date").fill("2025-10-01"); await page.locator("#record-value").fill("0"); await page.locator("#save-data").click();
     await page.waitForFunction(() => document.getElementById("data-status").classList.contains("error"));
     assert.match(await page.locator("#data-status").innerText(), /이미/);
@@ -260,7 +265,74 @@ test("new chat uses keyboard submission, receives ID and refreshes conversation 
     const request = calls.find(call => call.path === "/api/chat");
     assert.deepEqual(request.body, { question: "새 대화 테스트" });
     assert.match(await page.locator("#conversation-state").innerText(), /이어가고/);
-    await page.waitForSelector(".conversation-open"); assert.equal(await page.locator(".message").count(), 2);
+    await page.waitForFunction(() => document.querySelectorAll(".conversation-open").length === 1); assert.equal(await page.locator(".message").count(), 2);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test("Bree greeting and suggestions are UI only; history switching keeps server messages", async () => {
+  const { page, context, calls, errors } = await fixture();
+  try {
+    assert.match(await page.locator(".bree-welcome").innerText(), /안녕하세요, 브리예요! 외출 준비, 같이 해볼까요\?/);
+    assert.equal(await page.locator(".suggestion").count(), 2);
+    const question = await page.locator(".suggestion").first().innerText();
+    await page.locator(".suggestion").first().click();
+    assert.equal(await page.locator("#question").inputValue(), question);
+    assert.equal(calls.filter(call => call.method === "POST").length, 0);
+    await page.locator(".conversation-open").click();
+    await page.waitForFunction(() => document.querySelectorAll(".message").length === 2);
+    assert.equal(await page.locator(".bree-welcome").count(), 0);
+    await page.locator("#new-conversation").click();
+    await page.waitForSelector(".bree-welcome");
+    assert.equal(await page.locator(".message").count(), 0);
+    assert.equal(calls.filter(call => call.path === "/api/chat").length, 0);
+    await page.locator("#question").fill("Mock 질문: 과거 자료를 참고할 때 한계는 무엇인가요?");
+    await page.locator("#send").click();
+    assert(await page.locator("#messages").innerText().then(text => text.includes("브리가 생각하고 있어요")));
+    await page.waitForFunction(() => !document.getElementById("send").disabled);
+    const body = calls.find(call => call.path === "/api/chat").body;
+    assert(!JSON.stringify(body).includes("안녕하세요, 브리예요"));
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test("360px navigation and short viewport keep controls usable with one chat scroll region", async () => {
+  const { page, context, calls, errors } = await fixture({ mobile: true });
+  try {
+    await page.setViewportSize({ width: 360, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    assert.equal(await page.locator("#messages").evaluate(node => getComputedStyle(node).overflowY), "auto");
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflowY), "hidden");
+    for (const id of ["mobile-chat", "mobile-history", "mobile-data", "reenter-code"]) {
+      assert((await page.locator(`#${id}`).boundingBox()).height >= 44);
+    }
+    await openView(page, "history"); await page.locator(".conversation-open").click();
+    await page.waitForFunction(() => document.getElementById("main").dataset.view === "chat");
+    await page.setViewportSize({ width: 360, height: 500 });
+    await page.locator("#question").focus();
+    const composer = await page.locator("#question").boundingBox();
+    const nav = await page.locator("#mobile-nav").boundingBox();
+    assert(composer.y >= 0 && composer.y + composer.height <= nav.y);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    assert.equal(calls.filter(call => call.path === "/api/chat").length, 0);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test("365 records can be explored by date without modifying graph or data requests", async () => {
+  const observations = Array.from({ length: 365 }, (_, index) => ({ date: new Date(Date.UTC(2025, 9, 1) + index * 86400000).toISOString().slice(0, 10), value: index % 30 - 10, memo: "Mock 관측치" })).reverse();
+  const { page, context, calls, errors } = await fixture({ observations });
+  try {
+    await openView(page, "data"); await page.waitForSelector(".chart-point");
+    assert.equal(await page.locator(".data-row").count(), 365);
+    assert.equal(await page.locator(".chart-point").count(), 365);
+    await page.locator("#data-date-filter").fill("2025-10-01");
+    assert.equal(await page.locator(".data-row").count(), 1);
+    assert.match(await page.locator(".data-row").innerText(), /2025-10-01/);
+    assert.equal(await page.locator(".chart-point").count(), 365);
+    await page.locator("#clear-date-filter").click();
+    assert.equal(await page.locator(".data-row").count(), 365);
+    assert.equal(calls.filter(call => call.path === "/api/data" && call.method === "GET").length, 1);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
