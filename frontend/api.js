@@ -5,6 +5,7 @@ export class ApiError extends Error {
 export function errorMessage(error, area = "data") {
   if (!(error instanceof ApiError)) return "문제가 발생했어요. 잠시 후 다시 확인해 주세요.";
   const messages = {
+    401: "접근 코드가 없거나 올바르지 않아요. 접근 코드를 다시 입력해 주세요.",
     404: area === "chat" ? "대화가 없거나 삭제되었어요. 목록을 새로고침하고 새 대화를 시작해 주세요." : "데이터가 없거나 이미 삭제되었어요. 목록을 새로고침해 주세요.",
     409: area === "chat" ? "대화 저장 한도에 도달했어요. 새 대화를 시작해 주세요." : "이 날짜의 데이터가 이미 있어요. 기존 데이터를 수정해 주세요.",
     422: "입력 형식을 확인해 주세요. 날짜, 숫자 또는 질문 길이가 올바르지 않아요.",
@@ -15,17 +16,19 @@ export function errorMessage(error, area = "data") {
   return messages[error.status] || error.message;
 }
 
-export function createApi(baseUrl, fetchImpl = globalThis.fetch.bind(globalThis)) {
+export function createApi(baseUrl, fetchImpl = globalThis.fetch.bind(globalThis), getAccessCode = () => "") {
   const base = new URL(baseUrl);
   if (!["http:", "https:"].includes(base.protocol) || base.username || base.password || base.search || base.hash) throw new Error("올바른 FastAPI 서버 주소를 설정해 주세요.");
   const prefix = base.href.replace(/\/$/, "");
   async function request(path, method = "GET", body) {
+    const code = getAccessCode();
+    if (!code) throw new ApiError(401, "평가용 접근 코드를 입력해 주세요.");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
     try {
       const response = await fetchImpl(`${prefix}${path}`, {
-        method, signal: controller.signal, credentials: "omit",
-        headers: body === undefined ? {} : { "Content-Type": "application/json" },
+        method, signal: controller.signal, credentials: "omit", redirect: "error",
+        headers: { "X-Evaluation-Code": code, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!response.ok) throw new ApiError(response.status, "서버 요청을 처리하지 못했어요. 잠시 후 다시 확인해 주세요.");
@@ -38,6 +41,7 @@ export function createApi(baseUrl, fetchImpl = globalThis.fetch.bind(globalThis)
   }
   const id = value => encodeURIComponent(value);
   return {
+    access: () => request("/api/access"),
     chat: (question, conversationId) => request("/api/chat", "POST", { question, ...(conversationId ? { conversation_id: conversationId } : {}) }),
     createConversation: () => request("/api/conversations", "POST"),
     conversations: () => request("/api/conversations"),

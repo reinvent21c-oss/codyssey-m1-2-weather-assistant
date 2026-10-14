@@ -16,9 +16,20 @@
     <header class="header">
       <a class="brand" href="./"><span class="brand-mark" aria-hidden="true">챙</span><span>오늘 뭐 챙기지?<small>외출 준비, 함께 생각해요</small></span></a>
       <span class="badge">서울 · 과거 관측 자료</span>
+      <button id="reenter-code" class="text-button" type="button" hidden>접근 코드 다시 입력</button>
     </header>
     <div class="notice"><strong>과거 기온을 참고하는 서비스예요.</strong> 실시간 기온·강수 정보나 미래 예보는 제공하지 않습니다.</div>
-    <main id="main" class="layout">
+    <section id="access-panel" class="panel access-panel" aria-labelledby="access-heading">
+      <h1 id="access-heading">평가용 접근 코드</h1>
+      <p class="muted">전달받은 코드를 입력하면 기능을 이용할 수 있어요. 새로고침하면 다시 입력해야 합니다.</p>
+      <form id="access-form">
+        <label for="access-code">접근 코드</label>
+        <input id="access-code" type="password" required autocomplete="off" spellcheck="false">
+        <p id="access-status" class="status" role="status" aria-live="polite"></p>
+        <button id="access-submit" class="button primary" type="submit">접근 확인</button>
+      </form>
+    </section>
+    <main id="main" class="layout" hidden>
       <div class="workspace">
         <nav class="tabs" aria-label="주요 화면">
           <button id="chat-tab" class="tab active" aria-current="page" type="button">AI 채팅</button>

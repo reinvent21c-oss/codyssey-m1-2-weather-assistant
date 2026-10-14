@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +15,7 @@ from backend.chat_routes import router as chat_router
 from backend.conversation_service import ConversationLimitReached, ConversationNotFound
 from backend.gpt_service import ModelTimedOut, ModelUnavailable
 from backend.services import DataNotFound, DuplicateData, StorageUnavailable
+from backend.security import require_evaluation_code
 
 
 def allowed_origins():
@@ -40,10 +41,16 @@ def create_app():
     app = FastAPI(title="오늘 뭐 챙기지? — 관측 기온 데이터 API")
     app.add_middleware(
         CORSMiddleware, allow_origins=allowed_origins(), allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Evaluation-Code"],
     )
-    app.include_router(router)
-    app.include_router(chat_router)
+    protection = [Depends(require_evaluation_code)]
+    app.include_router(router, dependencies=protection)
+    app.include_router(chat_router, dependencies=protection)
+
+    @app.get("/api/access", dependencies=protection, tags=["access"])
+    def check_access():
+        # Verify the code without querying Firestore or consuming model tokens.
+        return {"authenticated": True}
 
     @app.exception_handler(ConversationNotFound)
     async def conversation_missing(request: Request, exc: ConversationNotFound):

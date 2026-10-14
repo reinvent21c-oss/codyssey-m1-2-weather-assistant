@@ -4,6 +4,7 @@ import { chartMessage, renderTemperatureChart } from "./chart.js";
 const $ = id => document.getElementById(id);
 const state = { conversationId: null, messages: [], records: [], chatBusy: false, historyBusy: false, dataBusy: false, dataLoading: false, editDate: null };
 let api;
+let evaluationCode = ""; // Memory only; never persist, log, or place in a URL.
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -161,7 +162,27 @@ async function deleteData(date) {
 }
 function showPanel(name) { for (const panel of ["chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); } }
 try {
-  api = createApi(window.APP_CONFIG.API_BASE_URL);
+  api = createApi(window.APP_CONFIG.API_BASE_URL, globalThis.fetch.bind(globalThis), () => evaluationCode);
+  $("reenter-code").addEventListener("click", () => window.location.reload());
+  $("access-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    if ($("access-submit").disabled) return;
+    evaluationCode = $("access-code").value;
+    $("access-code").value = "";
+    $("access-submit").disabled = true;
+    status("access-status", "접근 코드를 확인하는 중… 초기 서버 구동에는 시간이 걸릴 수 있어요.");
+    try {
+      const result = await api.access();
+      if (result.authenticated !== true) throw new Error();
+      $("access-panel").hidden = true; $("main").hidden = false; $("reenter-code").hidden = false;
+      status("access-status");
+      await Promise.all([loadSummary(), loadHistory()]); $("question").focus();
+    } catch (error) {
+      evaluationCode = "";
+      status("access-status", errorMessage(error) + " 서버가 잠들어 있었다면 잠시 기다린 뒤 다시 확인해 주세요.", true);
+      $("access-code").focus();
+    } finally { $("access-submit").disabled = false; }
+  });
   $("chat-tab").addEventListener("click", () => showPanel("chat"));
   $("data-tab").addEventListener("click", () => { showPanel("data"); if (!state.dataBusy) loadData(); });
   $("chat-form").addEventListener("submit", sendQuestion);
@@ -172,10 +193,10 @@ try {
   $("refresh-data").addEventListener("click", loadData);
   $("data-form").addEventListener("submit", saveData);
   $("cancel-edit").addEventListener("click", resetDataForm);
-  renderMessages(); Promise.all([loadSummary(), loadHistory()]);
+  renderMessages();
   let chartWidth = 0;
   new ResizeObserver(entries => {
     const width = entries[0].contentRect.width;
     if (width && width !== chartWidth) { chartWidth = width; if (state.records.length && !state.dataLoading) renderTemperatureChart($("temperature-chart"), state.records); }
   }).observe($("temperature-chart"));
-} catch { status("chat-status", "API 설정을 확인해 주세요. config.js에 올바른 FastAPI 서버 주소가 필요합니다.", true); $("send").disabled = true; }
+} catch { status("access-status", "API 설정을 확인해 주세요. config.js에 올바른 FastAPI 서버 주소가 필요합니다.", true); $("access-submit").disabled = true; }

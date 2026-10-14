@@ -2,9 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ApiError, createApi, errorMessage, validRecord } from "../api.js";
 
+const TEST_CODE = "TEST_ONLY_EVALUATION_CODE";
+const authenticatedApi = (url, fetcher) => createApi(url, fetcher, () => TEST_CODE);
+
 test("all ten endpoint methods and payloads match the backend", async () => {
   const requests = [];
-  const api = createApi("http://localhost:8000/", async (url, options) => {
+  const api = authenticatedApi("http://localhost:8000/", async (url, options) => {
     requests.push({ path: new URL(url).pathname, ...options });
     return { ok: true, json: async () => ({}) };
   });
@@ -22,11 +25,13 @@ test("all ten endpoint methods and payloads match the backend", async () => {
   assert.deepEqual(JSON.parse(requests[0].body), { question: "질문" });
   assert.deepEqual(JSON.parse(requests[5].body), record);
   assert(requests.every(request => request.credentials === "omit"));
+  assert(requests.every(request => request.headers["X-Evaluation-Code"] === TEST_CODE && request.redirect === "error"));
+  assert(requests.every(request => !request.path.includes(TEST_CODE) && !request.body?.includes(TEST_CODE)));
 });
 
 test("existing conversation ID is included and IDs are URL encoded", async () => {
   const requests = [];
-  const api = createApi("https://example.invalid", async (url, options) => { requests.push({ url, ...options }); return { ok: true, json: async () => ({}) }; });
+  const api = authenticatedApi("https://example.invalid", async (url, options) => { requests.push({ url, ...options }); return { ok: true, json: async () => ({}) }; });
   await api.chat("q", "existing"); await api.conversation("a/b?");
   assert.deepEqual(JSON.parse(requests[0].body), { question: "q", conversation_id: "existing" });
   assert.equal(requests[1].url, "https://example.invalid/api/conversations/a%2Fb%3F");
@@ -34,7 +39,7 @@ test("existing conversation ID is included and IDs are URL encoded", async () =>
 
 test("HTTP errors hide backend detail and give friendly guidance", async () => {
   for (const status of [404, 409, 422, 502, 503, 504]) {
-    const api = createApi("http://localhost:8000", async () => ({ ok: false, status, json: () => { throw new Error("PRIVATE_DETAIL"); } }));
+    const api = authenticatedApi("http://localhost:8000", async () => ({ ok: false, status, json: () => { throw new Error("PRIVATE_DETAIL"); } }));
     await assert.rejects(api.data(), error => error instanceof ApiError && !errorMessage(error).includes("PRIVATE_DETAIL"));
   }
   assert.match(errorMessage(new ApiError(409, "")), /이미/);
@@ -42,10 +47,23 @@ test("HTTP errors hide backend detail and give friendly guidance", async () => {
 });
 
 test("network and malformed responses are safe errors", async () => {
-  const offline = createApi("http://localhost:8000", async () => { throw new Error("PRIVATE_DETAIL"); });
+  const offline = authenticatedApi("http://localhost:8000", async () => { throw new Error("PRIVATE_DETAIL"); });
   await assert.rejects(offline.summary(), error => error.status === 0 && !error.message.includes("PRIVATE_DETAIL"));
-  const malformed = createApi("http://localhost:8000", async () => ({ ok: true, json: async () => { throw new Error(); } }));
+  const malformed = authenticatedApi("http://localhost:8000", async () => ({ ok: true, json: async () => { throw new Error(); } }));
   await assert.rejects(malformed.summary(), error => /응답 형식/.test(error.message));
+});
+
+test("no code blocks fetch; authentication check only passes code as a header", async () => {
+  let fetched = false;
+  const noCode = createApi("http://localhost:8000", async () => { fetched = true; });
+  await assert.rejects(noCode.access(), error => error.status === 401);
+  assert.equal(fetched, false);
+  const api = authenticatedApi("http://localhost:8000", async (url, options) => {
+    assert.equal(url, "http://localhost:8000/api/access");
+    assert.equal(options.headers["X-Evaluation-Code"], TEST_CODE);
+    return { ok: true, json: async () => ({ authenticated: true }) };
+  });
+  assert.deepEqual(await api.access(), { authenticated: true });
 });
 
 test("date and finite temperature validation allows zero and negatives", () => {

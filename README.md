@@ -4,6 +4,9 @@
 
 날씨 데이터를 기반으로 외출 준비를 도와주는 AI 비서 웹서비스입니다.
 
+현재 `/api`는 평가용 `X-Evaluation-Code` 헤더가 필요합니다. 실제 코드는 저장소에
+없으며, 설정·배포 준비는 아래 **작업 07** 절을 참고하세요.
+
 ## Firebase 연결 기반 (작업 02)
 
 Python 3.12에서 개발 환경을 준비하고 오프라인 테스트를 실행합니다.
@@ -308,3 +311,105 @@ Mock으로 정렬·누락 구간·음수·0°C·400건·단일 관측·빈 상�
 Chromium 모바일/PC 렌더링을 검증합니다. Python 전체 회귀는
 `.venv/bin/python -m tests.run_offline`으로 실행했으며 로컬 CSV 검증을 포함합니다.
 실제 Firestore·GPT 요청이나 외부 배포는 수행하지 않았습니다.
+
+## 평가용 접근 보호 및 배포 준비 (작업 07)
+
+백엔드의 `EVALUATION_ACCESS_CODE`를 사용자가 나중에 직접 안전하게 설정합니다.
+`.env.example`은 빈 값이며 실제 값을 코드·문서·config.js에 넣지 않습니다.
+앞뒤 공백 없는 충분히 긴 ASCII 값을 사용하고 필요한 평가 참여자에게만 별도로 전달하세요.
+환경 변수 또는 Git에서 제외되는 로컬 `.env`로 설정한 뒤 서버를 시작합니다.
+서버 설정이 없거나 요청 헤더가 없거나 틀리면 동일한 401로 거부합니다.
+문자열은 `hmac.compare_digest`로 비교하며 응답·애플리케이션 로그에 코드를 출력하지 않습니다.
+리버스 프록시나 별도 모니터링에도 인증 헤더를 기록하지 않도록 설정해야 합니다.
+
+기존 API 10개 모두 GET/POST/PUT/DELETE에 같은 검증을 적용합니다.
+추가한 `GET /api/access`는 같은 검증 후 `{"authenticated": true}`만 반환하며
+Firestore·GPT를 호출하지 않습니다. `/docs`, `/openapi.json`은 공개 열람 가능하고,
+Swagger의 **Authorize → EvaluationCode**에 코드를 입력해야 API를 실행할 수 있습니다.
+CORS는 기존 명시적 origin 목록을 유지하며 `X-Evaluation-Code` 헤더와 정상 preflight를
+허용합니다. CORS는 인증이 아닙니다.
+
+프론트엔드는 시작 시 password 입력 화면을 보여주고 `/api/access`로 확인합니다.
+성공한 뒤에만 기존 화면을 열며 모든 API 요청에 헤더를 보냅니다.
+코드는 JavaScript 메모리에만 유지하고 제출 즉시 입력란을 비웁니다.
+URL·HTML·쿠키·localStorage·sessionStorage에는 저장하지 않습니다.
+새로고침 또는 **접근 코드 다시 입력**을 누르면 다시 입력해야 합니다.
+코드 확인 실패나 서버 초기 구동 지연은 안전한 안내만 표시하고 자동 재시도하지 않습니다.
+헤더가 다른 서버로 전달되지 않도록 API 리다이렉트도 거부합니다.
+
+### 로컬 실행
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+# .env 또는 서버 환경 변수에 사용자가 EVALUATION_ACCESS_CODE를 먼저 설정
+.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+# 별도 터미널
+python3 -m http.server 5173 --bind 127.0.0.1 --directory frontend
+```
+
+`ALLOWED_ORIGINS=http://127.0.0.1:5173`과 `frontend/config.js`의
+`API_BASE_URL=http://127.0.0.1:8000`을 일치시킵니다. 실제 Firebase·GPT 설정이 없어도
+접근 코드 확인과 Swagger는 사용할 수 있으나 데이터·채팅 기능은 연결 설정이 필요합니다.
+
+### Render 백엔드 준비
+
+실제 배포는 이번 작업에서 수행하지 않습니다. 다음 단계에서 GitHub 저장소의 승인된
+`main`을 Python Web Service로 연결합니다. 저장소 루트가 작업 디렉터리입니다.
+
+- Python 3.12 런타임 사용(예: 서버 `PYTHON_VERSION=3.12.14`; 호스팅 지원 여부 확인)
+- Build Command: `python -m pip install -r requirements.txt`
+- Start Command: `python -m backend.run`
+- Health Check Path: `/docs` (인증정보·Firestore·모델 연결 없이 열람 가능)
+- `PORT`는 Render가 제공하며 시작 모듈이 `0.0.0.0:$PORT`에 연결합니다. 로컬 기본값은 8000입니다.
+
+필요한 서버 환경 변수:
+
+| 이름 | 용도 및 관리 위치 |
+| --- | --- |
+| `EVALUATION_ACCESS_CODE` | 비밀값, Render 서버 설정에만 직접 입력 |
+| `FIREBASE_PROJECT_ID` | 실제 Firebase 프로젝트 ID |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | 비밀값, Render 서버 환경 변수에만 직접 입력 |
+| `FIREBASE_SERVICE_ACCOUNT_PATH` | 로컬 보안 파일 방식용. Render에서는 JSON 방식을 사용하고 비워 둠 |
+| `OPENAI_API_KEY` | 비밀값, Render 서버 환경 변수에만 직접 입력 |
+| `OPENAI_BASE_URL` | `https://copa.codyssey.kr/v1` |
+| `OPENAI_MODEL` | `gpt-5.4-mini` |
+| `ALLOWED_ORIGINS` | 실제 HTTPS Vercel origin. 여러 origin은 쉼표 구분, 경로·와일드카드 제외 |
+| `PORT` | Render가 제공하는 수신 포트 |
+
+Firebase는 기존 모듈을 사용하며 프로젝트 ID와 서비스 계정의 ID가 같아야 합니다.
+실제 서비스 키·코드는 배포 플랫폼의 비공개 서버 환경 변수로만 관리합니다.
+키 파일을 Git에 추가하거나 프론트엔드 배포 설정에 전달하지 않습니다.
+무료 Web Service는 유휴 후 첫 요청의 초기 구동에 시간이 걸릴 수 있습니다.
+첫 확인이 시간 초과되면 잠시 기다리거나 공개 `/docs`에서 서버 구동을 확인한 후
+접근 코드를 다시 입력합니다. 구동·응답·무료 한도는 실제 배포 후 확인해야 합니다.
+
+### Vercel 프론트엔드 준비
+
+- Root Directory: `frontend`
+- Framework Preset: Other, 빌드·설치 명령 없음, Output Directory: `.`
+- `frontend/vercel.json`이 정적 설정과 공개 config.js의 캐시 방지를 제공합니다.
+- `.vercelignore`로 테스트·스크린샷·node_modules를 배포 파일에서 제외합니다.
+- **실제 Render HTTPS URL 입력 위치:** `frontend/config.js`의 `API_BASE_URL`.
+  서버 origin만 넣고 `/api`는 붙이지 않습니다. 이 URL은 공개 정보입니다.
+- **실제 Vercel HTTPS URL 입력 위치:** Render의 `ALLOWED_ORIGINS`.
+  지정한 배포 origin과 정확히 일치시킵니다. 임의 preview origin을 와일드카드로 허용하지 않습니다.
+- 브라우저에는 접근 코드를 사용자가 입력할 뿐 Firebase·OpenAI 키를 포함하지 않습니다.
+
+### 배포 후 검증 체크리스트 (이번에는 미실행)
+
+1. `/docs`, `/openapi.json`의 공개 열람 및 Swagger 인증 헤더 입력 확인.
+2. 코드 누락·오류·서버 미설정은 401, 올바른 코드의 `/api/access`만 200인지 확인.
+3. 실제 HTTPS origin과 인증 헤더의 CORS preflight, 새로고침 후 재입력 확인.
+4. 승인된 테스트 범위에서 Firebase·GPT 호환성 및 데이터·대화·차트 기능 확인.
+5. 로그·URL·공개 정적 파일에 비밀정보가 없는지 확인하고 무료 사용량·초기 구동 지연 확인.
+
+이 방식은 **평가 참여자끼리 공유하는 단일 코드**입니다. 회원가입·개인별 권한·대화
+소유권·요청 횟수 제한은 제공하지 않으며 코드 보유자는 모든 데이터와 대화에 접근합니다.
+코드가 유출되면 서버 환경 값을 바꾸고 참여자에게 재입력을 안내해야 합니다.
+일반 공개 서비스의 인증·비용 보호를 대신하지 않습니다.
+
+검증 명령은 `.venv/bin/python -m tests.run_offline`, `frontend/`의 `npm test`,
+`npm run test:browser`입니다. 기존 테스트는 테스트 전용 표식을 헤더로 보내 실제 인증
+검증을 통과하며 인증 함수를 우회하지 않습니다. 원격 서비스는 Mock으로 검증합니다.
+실제 Render·Vercel 배포, Firebase·GPT 요청, 실제 코드·비밀키 입력은 수행하지 않았습니다.
