@@ -37,6 +37,12 @@
         </section>
         <section id="data-panel" class="panel" aria-labelledby="data-heading" hidden>
           <div class="section-head"><div><p class="eyebrow">과거 관측 기온 기록</p><h1 id="data-heading">기온 데이터 관리</h1><p class="muted">서울 관측지점 108의 과거 일평균기온 자료</p></div><button id="refresh-data" class="button secondary" type="button">새로고침</button></div>
+          <figure class="temperature-chart" aria-labelledby="temperature-chart-heading">
+            <h2 id="temperature-chart-heading">서울 일별 평균기온 변화</h2>
+            <p class="muted small">과거 관측 자료 · 실시간 기온이나 미래 예보가 아닙니다.</p>
+            <div id="temperature-chart"><p class="chart-message muted">데이터를 불러오면 그래프가 표시됩니다.</p></div>
+            <figcaption class="muted small">점은 실제 관측값입니다. 누락 날짜 구간은 선을 연결하지 않으며, 상세 값은 아래 데이터 목록에서 확인할 수 있습니다.</figcaption>
+          </figure>
           <form id="data-form" class="data-form">
             <h2 id="data-form-heading">새 데이터 추가</h2>
             <div class="field-row"><div><label for="record-date">관측 날짜</label><input id="record-date" type="date" required></div><div><label for="record-value">일평균기온 (°C)</label><input id="record-value" type="number" step="any" required placeholder="음수와 0도 입력 가능"></div></div>

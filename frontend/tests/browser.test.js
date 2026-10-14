@@ -16,7 +16,7 @@ before(async () => {
   await mkdir(`${root}test-results`, { recursive: true });
   server = createServer(async (request, response) => {
     const name = new URL(request.url, "http://localhost").pathname.slice(1) || "index.html";
-    if (!["index.html", "config.js", "app.js", "api.js", "styles.css"].includes(name)) { response.writeHead(404); response.end(); return; }
+    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "styles.css"].includes(name)) { response.writeHead(404); response.end(); return; }
     const data = await readFile(`${root}${name}`);
     response.setHeader("Content-Type", name.endsWith("js") ? "application/javascript" : name.endsWith("css") ? "text/css" : "text/html; charset=utf-8"); response.end(data);
   });
@@ -26,12 +26,12 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0 } = {}) {
+async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0 } = {}) {
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1280, height: 900 } });
   const page = await context.newPage(); const errors = []; const calls = [];
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
-  const data = empty ? [] : [{ date: "2025-10-02", value: 0, memo: "Mock 관측치" }, { date: "2025-10-01", value: -1, memo: malicious }];
+  const data = observations ?? (empty ? [] : [{ date: "2025-10-02", value: 0, memo: "Mock 관측치" }, { date: "2025-10-01", value: -1, memo: malicious }]);
   const conversations = new Map(empty ? [] : [[firstId, { id: firstId, created_at: "2025-10-01T00:00:00Z", updated_at: "2025-10-02T00:00:00Z", messages: [{ role: "user", content: "이전 테스트 질문" }, { role: "assistant", content: malicious }] }]]);
   await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {
     const banner = document.createElement("p"); banner.textContent = "테스트용 Mock 응답 · 실제 데이터 및 AI 답변 아님"; banner.style.cssText = "background:#ffedb8;padding:8px;text-align:center;margin:0"; document.body.prepend(banner);
@@ -62,7 +62,7 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
         result = { conversation_id: id, response: "Mock 테스트 답변: 과거 관측 자료이며 실시간 날씨가 아닙니다." };
         conversations.get(id).messages.push({ role: "user", content: body.question }, { role: "assistant", content: result.response });
       }
-    } else if (path === "/api/data" && method === "GET") result = data;
+    } else if (path === "/api/data" && method === "GET") { status = dataReadError || 200; result = dataReadError ? { detail: "PRIVATE_DETAIL" } : data; }
     else if (path.startsWith("/api/data")) {
       if (dataError) { status = dataError; result = { detail: "PRIVATE_STORAGE_DETAIL" }; }
       else if (method === "POST") { data.push(body); result = body; status = 201; }
@@ -123,20 +123,70 @@ test("data CRUD uses date IDs and safe memo rendering, refreshes summary", async
     await page.locator("#data-tab").click(); await page.waitForSelector(".data-row");
     assert.equal(await page.locator(".record-top").first().innerText(), "2025-10-01\n-1°C");
     assert.equal(await page.locator("#data-list img").count(), 0);
+    assert.deepEqual(await page.locator(".chart-point").evaluateAll(nodes => nodes.map(node => [node.dataset.date, node.dataset.value])), [["2025-10-01", "-1"], ["2025-10-02", "0"]]);
     await page.locator("#record-date").fill("2025-10-03"); await page.locator("#record-value").fill("-2"); await page.locator("#record-memo").fill("Mock 새 자료"); await page.locator("#save-data").click();
     await page.waitForFunction(() => document.querySelectorAll(".data-row").length === 3);
+    assert.equal(await page.locator(".chart-point").count(), 3);
     assert.deepEqual(calls.find(call => call.path === "/api/data" && call.method === "POST").body, { date: "2025-10-03", value: -2, memo: "Mock 새 자료" });
     await page.getByRole("button", { name: "2025-10-03 데이터 수정", exact: true }).click(); assert(await page.locator("#record-date").isDisabled());
     await page.locator("#record-value").fill("0"); await page.locator("#save-data").click();
     await page.waitForFunction(() => document.getElementById("data-form-heading").textContent === "새 데이터 추가");
     assert.equal(calls.find(call => call.method === "PUT").path, "/api/data/2025-10-03");
     assert.equal(calls.find(call => call.method === "PUT").body.value, 0);
+    await page.waitForSelector('.chart-point[data-date="2025-10-03"][data-value="0"]');
     page.once("dialog", dialog => dialog.dismiss()); await page.getByRole("button", { name: "2025-10-03 데이터 삭제", exact: true }).click();
     assert.equal(calls.filter(call => call.method === "DELETE").length, 0);
     page.once("dialog", dialog => dialog.accept()); await page.getByRole("button", { name: "2025-10-03 데이터 삭제", exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll(".data-row").length === 2);
+    assert.equal(await page.locator(".chart-point").count(), 2);
     assert(calls.filter(call => call.path === "/api/data/summary").length >= 4); assert.deepEqual(errors, []);
   } finally { await context.close(); }
+});
+
+test("chart shows gaps, safe SVG, single/zero values and readable mobile labels", async () => {
+  const { page, context, errors } = await fixture({ mobile: true, observations: [{ date: "2025-10-03", value: 0, memo: malicious }, { date: "2025-10-01", value: -5, memo: malicious }] });
+  try {
+    await page.locator("#data-tab").click(); await page.waitForSelector(".chart-point");
+    assert.equal(await page.locator(".chart-point").count(), 2);
+    assert.equal(await page.locator(".chart-line").count(), 0);
+    assert.match(await page.locator("#temperature-chart svg desc").textContent(), /누락 날짜/);
+    assert.equal(await page.locator("#temperature-chart img, #temperature-chart script").count(), 0);
+    assert.equal(await page.evaluate(() => window.XSS_EXECUTED), undefined);
+    const dots = await page.locator(".chart-point").evaluateAll(nodes => nodes.map(node => ({ x: +node.getAttribute("cx"), y: +node.getAttribute("cy"), date: node.dataset.date, value: node.dataset.value })));
+    assert(dots[0].x < dots[1].x && dots[0].y > dots[1].y);
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    assert.equal(await page.locator(".chart-label").first().evaluate(node => getComputedStyle(node).fontSize), "14px");
+    await page.screenshot({ path: `${root}test-results/chart-mobile.png`, fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForFunction(() => +document.querySelector("#temperature-chart svg").viewBox.baseVal.width > 480);
+    await page.screenshot({ path: `${root}test-results/chart-desktop.png`, fullPage: true });
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test("chart empty and API-error states do not leave stale observation points", async () => {
+  for (const options of [{ empty: true }, { dataReadError: 503 }]) {
+    const { page, context } = await fixture(options);
+    try {
+      await page.locator("#data-tab").click();
+      await page.waitForFunction(() => !document.getElementById("data-status").textContent.includes("불러오는"));
+      assert.equal(await page.locator(".chart-point").count(), 0);
+      assert.match(await page.locator("#temperature-chart").innerText(), options.empty ? /데이터가 없어/ : /불러오지 못해/);
+      assert(!(await page.locator("body").innerText()).includes("PRIVATE_DETAIL"));
+    } finally { await context.close(); }
+  }
+});
+
+test("chart renders 400 observations and a single zero without fabricated values", async () => {
+  for (const observations of [[{ date: "2025-01-01", value: 0, memo: "Mock" }], Array.from({ length: 400 }, (_, index) => ({ date: new Date(Date.UTC(2025, 0, 1) + index * 86400000).toISOString().slice(0, 10), value: index % 30 - 10, memo: "Mock" })).reverse()]) {
+    const { page, context, errors } = await fixture({ observations });
+    try {
+      await page.locator("#data-tab").click(); await page.waitForSelector(".chart-point");
+      assert.equal(await page.locator(".chart-point").count(), observations.length);
+      assert(!(await page.locator("#temperature-chart svg").getAttribute("viewBox")).includes("NaN"));
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
 });
 
 test("chat failure preserves input, shows retry guidance and never invents a reply", async () => {

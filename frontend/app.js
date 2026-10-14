@@ -1,4 +1,5 @@
 import { createApi, errorMessage, validRecord } from "./api.js";
+import { chartMessage, renderTemperatureChart } from "./chart.js";
 
 const $ = id => document.getElementById(id);
 const state = { conversationId: null, messages: [], records: [], chatBusy: false, historyBusy: false, dataBusy: false, dataLoading: false, editDate: null };
@@ -118,13 +119,15 @@ async function loadData() {
   if (state.dataLoading) return false;
   state.dataLoading = true; dataControls();
   status("data-status", "데이터를 불러오는 중…");
+  chartMessage($("temperature-chart"), "기온 그래프를 불러오는 중…");
   try {
     const records = await api.data(); if (!Array.isArray(records)) throw new Error();
     state.records = [...records].sort((a, b) => a.date.localeCompare(b.date)); renderData(); status("data-status"); return true;
-  } catch (error) { state.records = []; $("data-list").replaceChildren(); status("data-status", errorMessage(error) + " 새로고침으로 목록을 다시 확인해 주세요.", true); return false; }
+  } catch (error) { state.records = []; $("data-list").replaceChildren(); chartMessage($("temperature-chart"), "데이터를 불러오지 못해 그래프를 표시할 수 없어요. 새로고침해 주세요."); status("data-status", errorMessage(error) + " 새로고침으로 목록을 다시 확인해 주세요.", true); return false; }
   finally { state.dataLoading = false; dataControls(); }
 }
 function renderData() {
+  renderTemperatureChart($("temperature-chart"), state.records);
   const target = $("data-list"); target.replaceChildren();
   if (!state.records.length) empty(target, "기온 데이터가 없어요", "관측 날짜와 기온을 입력해 새 데이터를 추가할 수 있어요.");
   for (const record of state.records) {
@@ -170,4 +173,9 @@ try {
   $("data-form").addEventListener("submit", saveData);
   $("cancel-edit").addEventListener("click", resetDataForm);
   renderMessages(); Promise.all([loadSummary(), loadHistory()]);
+  let chartWidth = 0;
+  new ResizeObserver(entries => {
+    const width = entries[0].contentRect.width;
+    if (width && width !== chartWidth) { chartWidth = width; if (state.records.length && !state.dataLoading) renderTemperatureChart($("temperature-chart"), state.records); }
+  }).observe($("temperature-chart"));
 } catch { status("chat-status", "API 설정을 확인해 주세요. config.js에 올바른 FastAPI 서버 주소가 필요합니다.", true); $("send").disabled = true; }
