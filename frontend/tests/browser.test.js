@@ -17,9 +17,9 @@ before(async () => {
   await mkdir(`${root}test-results`, { recursive: true });
   server = createServer(async (request, response) => {
     const name = new URL(request.url, "http://localhost").pathname.slice(1) || "index.html";
-    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "styles.css"].includes(name)) { response.writeHead(404); response.end(); return; }
+    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "styles.css", "assets/bree-welcome.png"].includes(name)) { response.writeHead(404); response.end(); return; }
     const data = await readFile(`${root}${name}`);
-    response.setHeader("Content-Type", name.endsWith("js") ? "application/javascript" : name.endsWith("css") ? "text/css" : "text/html; charset=utf-8"); response.end(data);
+    response.setHeader("Content-Type", name.endsWith("png") ? "image/png" : name.endsWith("js") ? "application/javascript" : name.endsWith("css") ? "text/css" : "text/html; charset=utf-8"); response.end(data);
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
@@ -102,7 +102,9 @@ test("desktop: summary, chat loading and duplicate prevention, history and XSS s
     assert.match(await page.locator("#summary-content").innerText(), /판단 불가/);
     await page.locator(".conversation-open").click(); await page.waitForFunction(() => document.querySelectorAll(".message").length === 2);
     assert((await page.locator("#messages").innerText()).includes(malicious));
-    assert.equal(await page.locator("#messages img").count(), 0);
+    // Approved local avatars are allowed; injected response markup must stay text.
+    assert.equal(await page.locator("#messages img:not(.bree-avatar)").count(), 0);
+    assert.deepEqual(await page.locator("#messages img").evaluateAll(images => images.map(image => image.getAttribute("src"))), ["./assets/bree-welcome.png"]);
     await page.locator("#question").fill("테스트 질문"); await page.locator("#send").click();
     assert.equal(await page.locator("#send").isDisabled(), true);
     assert.equal(await page.locator("#new-conversation").isDisabled(), true);
@@ -112,6 +114,7 @@ test("desktop: summary, chat loading and duplicate prevention, history and XSS s
     assert.equal(calls.find(call => call.path === "/api/chat").body.conversation_id, firstId);
     assert.equal(await page.locator(".message").count(), 4);
     assert.equal(await page.evaluate(() => window.XSS_EXECUTED), undefined);
+    assert(await page.locator(".message").evaluateAll(messages => messages.every(message => message.scrollHeight <= message.clientHeight + 1)));
     await mkdir(`${root}test-results`, { recursive: true }); await page.screenshot({ path: `${root}test-results/desktop.png`, fullPage: true });
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
@@ -274,6 +277,7 @@ test("Bree greeting and suggestions are UI only; history switching keeps server 
   const { page, context, calls, errors } = await fixture();
   try {
     assert.match(await page.locator(".bree-welcome").innerText(), /안녕하세요, 브리예요! 외출 준비, 같이 해볼까요\?/);
+    assert(await page.locator(".bree-art-slot").evaluate(image => image.complete && image.naturalWidth > 0));
     assert.equal(await page.locator(".suggestion").count(), 2);
     const question = await page.locator(".suggestion").first().innerText();
     await page.locator(".suggestion").first().click();
@@ -282,6 +286,7 @@ test("Bree greeting and suggestions are UI only; history switching keeps server 
     await page.locator(".conversation-open").click();
     await page.waitForFunction(() => document.querySelectorAll(".message").length === 2);
     assert.equal(await page.locator(".bree-welcome").count(), 0);
+    assert(await page.locator(".bree-avatar").first().evaluate(image => image.complete && image.naturalWidth > 0));
     await page.locator("#new-conversation").click();
     await page.waitForSelector(".bree-welcome");
     assert.equal(await page.locator(".message").count(), 0);

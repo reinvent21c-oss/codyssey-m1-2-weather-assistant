@@ -22,13 +22,19 @@ function historyControls() {
   $("question").disabled = busy;
   document.querySelectorAll("#conversation-list button").forEach(button => button.disabled = busy);
 }
+function breeImage(className, alt) {
+  const image = element("img", undefined, className);
+  image.src = "./assets/bree-welcome.png";
+  image.alt = alt;
+  image.width = 1536; image.height = 1024;
+  return image;
+}
 function renderMessages(pending) {
   const target = $("messages"); target.replaceChildren();
   const messages = [...state.messages, ...(pending ? [{ role: "user", content: pending }, { role: "assistant", content: "브리가 생각하고 있어요…" }] : [])];
   if (!messages.length) {
     const intro = element("div", undefined, "bree-welcome");
-    // No substitute character: the approved guide image has not been provided.
-    intro.append(element("div", "승인된 브리 캐릭터 이미지 확인 대기", "bree-art-slot"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", "추천 질문은 입력만 채워요."));
+    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", "추천 질문은 입력만 채워요."));
     const suggestions = element("div", undefined, "suggestions");
     for (const question of ["자료의 평균·최저·최고 일평균기온이 궁금해요.", "최근 관측 기온의 추세를 알려주세요."]) {
       const button = element("button", question, "suggestion"); button.type = "button";
@@ -39,6 +45,7 @@ function renderMessages(pending) {
   }
   for (const message of messages) {
     const bubble = element("div", undefined, `message ${message.role === "user" ? "user" : "assistant"}`);
+    if (message.role === "assistant") bubble.append(breeImage("bree-avatar", ""));
     bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), element("span", message.content)); target.append(bubble);
   }
   $("conversation-state").textContent = state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";

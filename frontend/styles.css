@@ -553,3 +553,12 @@
                                                                                                                                                                                                                                                                                                             }
 
 .chat-panel:has(.bree-welcome) #conversation-state { display: none; }
+
+/* Approved Bree reference adapted as a local transparent PNG; no external image host. */
+.bree-art-slot { display:block; width:280px; height:187px; max-width:100%; object-fit:contain; padding:0; border:0; border-radius:0; background:transparent; }
+.message.assistant { position:relative; padding-left:66px; min-height:64px; }
+.bree-avatar { position:absolute; left:10px; top:12px; width:46px; height:40px; object-fit:contain; }
+@media(max-width:760px) { .bree-art-slot { width:180px; height:120px; margin-bottom:12px; } }
+
+/* Keep message content inside bubbles when the conversation scrolls. */
+.message { flex-shrink:0; }
