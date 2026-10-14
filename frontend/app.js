@@ -188,8 +188,10 @@ function showPanel(name) {
   updateChatViewport();
 }
 function updateChatViewport() {
-  if (!matchMedia("(max-width: 760px)").matches || $("main").hidden || $("main").dataset.view !== "chat") return;
-  const height = (window.visualViewport?.height || innerHeight) - $("main").getBoundingClientRect().top - $("mobile-nav").getBoundingClientRect().height - 12;
+  if ($("main").hidden || $("main").dataset.view !== "chat") return;
+  const mobile = matchMedia("(max-width: 760px)").matches;
+  const navigationHeight = mobile ? $("mobile-nav").getBoundingClientRect().height : 0;
+  const height = (window.visualViewport?.height || innerHeight) - $("chat-panel").getBoundingClientRect().top - navigationHeight - 12;
   $("chat-panel").style.setProperty("--chat-height", `${Math.max(160, height)}px`);
 }
 try {

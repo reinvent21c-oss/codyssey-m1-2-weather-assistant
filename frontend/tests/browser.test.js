@@ -17,7 +17,7 @@ before(async () => {
   await mkdir(`${root}test-results`, { recursive: true });
   server = createServer(async (request, response) => {
     const name = new URL(request.url, "http://localhost").pathname.slice(1) || "index.html";
-    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "styles.css", "assets/bree-welcome.png"].includes(name)) { response.writeHead(404); response.end(); return; }
+    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "styles.css", "theme.css", "assets/bree-welcome.png"].includes(name)) { response.writeHead(404); response.end(); return; }
     const data = await readFile(`${root}${name}`);
     response.setHeader("Content-Type", name.endsWith("png") ? "image/png" : name.endsWith("js") ? "application/javascript" : name.endsWith("css") ? "text/css" : "text/html; charset=utf-8"); response.end(data);
   });
@@ -340,4 +340,36 @@ test("365 records can be explored by date without modifying graph or data reques
     assert.equal(calls.filter(call => call.path === "/api/data" && call.method === "GET").length, 1);
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
+});
+
+
+test("Bree access, composer and data cards remain usable at desktop and 360px", async () => {
+  for (const mobile of [false, true]) {
+    const { page, context, calls, errors } = await fixture({ mobile, authenticate: false });
+    try {
+      if (mobile) await page.setViewportSize({ width: 360, height: 844 });
+      await page.waitForFunction(() => {
+        const image = document.querySelector(".access-art img");
+        return image?.complete && image.naturalWidth > 0;
+      });
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      assert.equal(calls.length, 0);
+      await page.locator("#access-code").fill(TEST_CODE);
+      await page.locator("#access-submit").click();
+      await page.waitForSelector("#main:not([hidden])");
+      const field = await page.locator("#question").boundingBox();
+      const send = await page.locator("#send").boundingBox();
+      assert(field.y >= 0 && field.y + field.height <= page.viewportSize().height);
+      assert(send.x >= field.x + field.width - 1 && send.height >= 44);
+      if (mobile) assert(send.y + send.height <= (await page.locator("#mobile-nav").boundingBox()).y);
+      await openView(page, "data");
+      await page.waitForSelector(".chart-point");
+      assert.equal(await page.locator(".stat").count(), 4);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      const editor = await page.locator(".data-editor").boundingBox();
+      const records = await page.locator(".data-records").boundingBox();
+      assert(mobile ? records.y >= editor.y + editor.height : records.x >= editor.x + editor.width);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
 });
