@@ -16,23 +16,40 @@ function empty(target, title, text) { target.replaceChildren(element("li", undef
 function historyControls() {
   const busy = state.chatBusy || state.historyBusy;
   $("new-conversation").disabled = busy;
+  $("history-new-conversation").disabled = busy;
   $("refresh-conversations").disabled = busy;
   $("send").disabled = busy;
   $("question").disabled = busy;
   document.querySelectorAll("#conversation-list button").forEach(button => button.disabled = busy);
 }
+function breeImage(className, alt) {
+  const image = element("img", undefined, className);
+  image.src = "./assets/bree-welcome.png";
+  image.alt = alt;
+  image.width = 1536; image.height = 1024;
+  return image;
+}
 function renderMessages(pending) {
   const target = $("messages"); target.replaceChildren();
-  const messages = [...state.messages, ...(pending ? [{ role: "user", content: pending }, { role: "assistant", content: "답변을 준비하고 있어요…" }] : [])];
+  const messages = [...state.messages, ...(pending ? [{ role: "user", content: pending }, { role: "assistant", content: "브리가 생각하고 있어요…" }] : [])];
   if (!messages.length) {
-    const intro = element("div", undefined, "empty"); intro.append(element("strong", "무엇을 준비하면 좋을까요?"), element("p", "질문을 보내면 서버의 AI 답변이 이곳에 표시됩니다.")); target.append(intro);
+    const intro = element("div", undefined, "bree-welcome");
+    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", "추천 질문은 입력만 채워요."));
+    const suggestions = element("div", undefined, "suggestions");
+    for (const question of ["자료의 평균·최저·최고 일평균기온이 궁금해요.", "최근 관측 기온의 추세를 알려주세요."]) {
+      const button = element("button", question, "suggestion"); button.type = "button";
+      button.addEventListener("click", () => { if (!state.chatBusy && !state.historyBusy) { $("question").value = question; $("question").focus(); } });
+      suggestions.append(button);
+    }
+    intro.append(suggestions); target.append(intro);
   }
   for (const message of messages) {
     const bubble = element("div", undefined, `message ${message.role === "user" ? "user" : "assistant"}`);
-    bubble.append(element("span", message.role === "user" ? "나" : "오늘 뭐 챙기지?", "message-label"), element("span", message.content)); target.append(bubble);
+    if (message.role === "assistant") bubble.append(breeImage("bree-avatar", ""));
+    bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), element("span", message.content)); target.append(bubble);
   }
   $("conversation-state").textContent = state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";
-  target.scrollTop = target.scrollHeight;
+  target.scrollTop = messages.length ? target.scrollHeight : 0;
 }
 async function loadHistory() {
   status("history-status", "대화 목록을 불러오는 중…");
@@ -81,7 +98,7 @@ async function deleteConversation(id) {
 async function newConversation() {
   if (state.chatBusy || state.historyBusy) return;
   state.historyBusy = true; historyControls(); status("chat-status", "새 대화를 만드는 중…");
-  try { const result = await api.createConversation(); state.conversationId = result.id; state.messages = []; $("question").value = ""; renderMessages(); status("chat-status", "새 대화를 시작했어요."); await loadHistory(); }
+  try { const result = await api.createConversation(); state.conversationId = result.id; state.messages = []; $("question").value = ""; showPanel("chat"); renderMessages(); status("chat-status", "새 대화를 시작했어요."); await loadHistory(); }
   catch (error) { status("chat-status", errorMessage(error, "chat"), true); }
   finally { state.historyBusy = false; historyControls(); $("question").focus(); }
 }
@@ -98,7 +115,7 @@ async function sendQuestion(event) {
     state.messages.push({ role: "user", content: question }, { role: "assistant", content: result.response });
     $("question").value = ""; renderMessages(); status("chat-status", "답변과 질문이 저장되었어요."); await loadHistory();
   } catch (error) { renderMessages(); status("chat-status", errorMessage(error, "chat") + " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요. 질문은 입력창에 남겨 두었습니다.", true); }
-  finally { state.chatBusy = false; historyControls(); $("send").textContent = "질문 보내기"; $("question").focus(); }
+  finally { state.chatBusy = false; historyControls(); $("send").textContent = "브리에게 보내기"; $("question").focus(); }
 }
 function temperature(value) { return typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}°C` : "—"; }
 async function loadSummary() {
@@ -131,7 +148,10 @@ function renderData() {
   renderTemperatureChart($("temperature-chart"), state.records);
   const target = $("data-list"); target.replaceChildren();
   if (!state.records.length) empty(target, "기온 데이터가 없어요", "관측 날짜와 기온을 입력해 새 데이터를 추가할 수 있어요.");
-  for (const record of state.records) {
+  const dateFilter = $("data-date-filter").value;
+  const visible = state.records.filter(record => !dateFilter || record.date === dateFilter);
+  if (state.records.length && !visible.length) empty(target, "이 날짜의 기록이 없어요", "전체 날짜 보기를 누르면 다른 관측 기록을 확인할 수 있어요.");
+  for (const record of visible) {
     const row = element("li", undefined, "data-row"); const top = element("div", undefined, "record-top"); top.append(element("span", record.date), element("span", temperature(record.value))); const actions = element("div", undefined, "record-actions");
     const edit = element("button", "수정", "button secondary"); edit.type = "button"; edit.setAttribute("aria-label", `${record.date} 데이터 수정`); edit.addEventListener("click", () => editData(record));
     const remove = element("button", "삭제", "button danger"); remove.type = "button"; remove.setAttribute("aria-label", `${record.date} 데이터 삭제`); remove.addEventListener("click", () => deleteData(record.date));
@@ -160,7 +180,20 @@ async function deleteData(date) {
   catch (error) { status("data-status", errorMessage(error), true); }
   finally { state.dataBusy = false; dataControls(); }
 }
-function showPanel(name) { for (const panel of ["chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); } }
+function showPanel(name) {
+  $("main").dataset.view = name;
+  document.body.dataset.view = name;
+  for (const panel of ["chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); }
+  for (const view of ["chat", "history", "data"]) { if (view === name) $(`mobile-${view}`).setAttribute("aria-current", "page"); else $(`mobile-${view}`).removeAttribute("aria-current"); }
+  updateChatViewport();
+}
+function updateChatViewport() {
+  if ($("main").hidden || $("main").dataset.view !== "chat") return;
+  const mobile = matchMedia("(max-width: 760px)").matches;
+  const navigationHeight = mobile ? $("mobile-nav").getBoundingClientRect().height : 0;
+  const height = (window.visualViewport?.height || innerHeight) - $("chat-panel").getBoundingClientRect().top - navigationHeight - 12;
+  $("chat-panel").style.setProperty("--chat-height", `${Math.max(160, height)}px`);
+}
 try {
   api = createApi(window.APP_CONFIG.API_BASE_URL, globalThis.fetch.bind(globalThis), () => evaluationCode);
   $("reenter-code").addEventListener("click", () => window.location.reload());
@@ -174,7 +207,8 @@ try {
     try {
       const result = await api.access();
       if (result.authenticated !== true) throw new Error();
-      $("access-panel").hidden = true; $("main").hidden = false; $("reenter-code").hidden = false;
+      $("access-panel").hidden = true; $("main").hidden = false; $("mobile-nav").hidden = false; $("reenter-code").hidden = false;
+      showPanel("chat");
       status("access-status");
       await Promise.all([loadSummary(), loadHistory()]); $("question").focus();
     } catch (error) {
@@ -185,9 +219,17 @@ try {
   });
   $("chat-tab").addEventListener("click", () => showPanel("chat"));
   $("data-tab").addEventListener("click", () => { showPanel("data"); if (!state.dataBusy) loadData(); });
+  $("mobile-chat").addEventListener("click", () => showPanel("chat"));
+  $("mobile-history").addEventListener("click", () => showPanel("history"));
+  $("mobile-data").addEventListener("click", () => { showPanel("data"); if (!state.dataBusy) loadData(); });
+  $("data-date-filter").addEventListener("input", renderData);
+  $("clear-date-filter").addEventListener("click", () => { $("data-date-filter").value = ""; renderData(); });
   $("chat-form").addEventListener("submit", sendQuestion);
   $("question").addEventListener("keydown", event => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) { event.preventDefault(); $("chat-form").requestSubmit(); } });
   $("new-conversation").addEventListener("click", newConversation);
+  $("history-new-conversation").addEventListener("click", newConversation);
+  window.addEventListener("resize", updateChatViewport);
+  window.visualViewport?.addEventListener("resize", updateChatViewport);
   $("refresh-conversations").addEventListener("click", loadHistory);
   $("refresh-summary").addEventListener("click", loadSummary);
   $("refresh-data").addEventListener("click", loadData);

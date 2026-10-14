@@ -1,0 +1,178 @@
+/* 07-D: shared Bree palette; CSS scenery is decorative, never weather data. */
+:root {
+  --green: #0e7d73;
+  --muted: #476676;
+  --line: #d4eaf0;
+  --sky: #7fd8ff;
+  --mint: #dff5ec;
+  --ink: #163e54;
+  --shadow: 0 8px 26px #23768c0c;
+  color: var(--ink);
+  background: #f0fafe;
+}
+body {
+  background: radial-gradient(ellipse at 8% 8%, #cbf2ff 0, transparent 40%),
+    radial-gradient(ellipse at 95% 70%, #def8ef 0, transparent 40%), #f0fafe;
+}
+.shell { max-width: 1320px; padding: 24px 28px; }
+.header { margin-bottom: 18px; }
+.brand { color: var(--ink); }
+.panel {
+  border-color: var(--line);
+  background: #ffffffeb;
+  box-shadow: var(--shadow);
+  border-radius: 24px;
+}
+.primary {
+  background: linear-gradient(120deg, #0e7d73, #158a85);
+  box-shadow: 0 4px 10px #0e7d7314;
+}
+.primary:hover:not(:disabled) { background: #096b63; }
+.secondary { color: #146964; background: #eaf8f6; border-color: #d3eeea; }
+.secondary:hover:not(:disabled) { background: #dcf3ee; }
+.button { border-radius: 14px; min-height: 46px; }
+.text-button { color: var(--green); }
+input, textarea { border-color: #cce2e9; background: #fcfeff; border-radius: 14px; }
+input::placeholder, textarea::placeholder { color: #657e8b; opacity: 1; }
+.eyebrow { color: var(--green); letter-spacing: .09em; }
+.access-panel {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 24px;
+  align-items: center;
+  max-width: 980px;
+  min-height: 600px;
+  margin: 26px auto;
+  padding: 56px;
+  isolation: isolate;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 15% 15%, #dcf6ff, transparent 55%),
+    linear-gradient(150deg, #effbff, #fff 58%, #e1f8f0);
+}
+.access-panel::before, .access-panel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  width: 120%; height: 160px;
+  left: -25%; bottom: -85px;
+  background: #bcebf76e;
+  transform: rotate(9deg);
+}
+.access-panel::after { left: 25%; bottom: -115px; background: #b9efdc99; transform: rotate(-12deg); }
+.access-art img { display: block; width: 100%; height: auto; object-fit: contain; }
+.access-panel h1 { font-size: 2.35rem; line-height: 1.3; margin: 12px 0 16px; }
+.access-description { line-height: 1.8; }
+.access-panel form {
+  background: #ffffffd9;
+  border: 1px solid #e0eef3;
+  border-radius: 22px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  margin: 24px 0 0;
+}
+.access-note { text-align: center; margin-top: 16px; }
+.access-panel .primary { min-height: 48px; }
+.app-layout { gap: 20px; grid-template-columns: 240px minmax(0, 1fr); }
+.history-sidebar { background: #f6fcffb8; }
+.history-sidebar h2 { font-size: 1rem; }
+.conversation-item { border-top: 0; padding: 4px 0; }
+.conversation-open { border-radius: 14px; padding: 12px 10px; }
+.conversation-open:hover, .conversation-open.active { background: #e5f6f8; }
+.tab { font-size: .9rem; padding: 10px 16px; }
+.tab.active { background: #d9f3ff; color: #155d74; box-shadow: inset 0 0 0 1px #ccecf5; }
+.chat-panel { background: linear-gradient(145deg, #ffffffed, #f6fcffed); height: var(--chat-height, calc(100dvh - 180px)); min-height: 0; }
+body[data-view=chat] footer { display: none; }
+.chat-heading-row h1 { font-size: 1.35rem; }
+.bree-welcome { padding: 8px 0; width: 100%; max-width: 600px; }
+.bree-art-slot { width: 330px; height: 220px; margin-bottom: 12px; }
+.bree-welcome h2 { max-width: 500px; margin: 0 auto 10px; line-height: 1.5; }
+.suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 550px; margin: 20px auto 0; }
+.suggestion {
+  border: 1px solid #dcf0f0; border-radius: 22px;
+  background: linear-gradient(145deg, #fff, #effafb);
+  box-shadow: 0 6px 16px #23768c08;
+  padding: 16px; min-height: 74px; text-align: left; color: #1c5c62;
+}
+.suggestion:hover:not(:disabled) { background: #eaf8f5; border-color: #afdad5; }
+.message { border-radius: 20px 20px 20px 6px; background: #edf8ff; padding: 16px 20px; }
+.message.user { background: #dff5ec; border-radius: 20px 20px 6px 20px; }
+.message.assistant { padding-left: 66px; }
+.bree-avatar { top: 14px; }
+.composer { background: transparent; border: 0; padding-top: 12px; }
+.chat-form {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 10px;
+  padding: 12px; border: 1px solid var(--line); border-radius: 22px;
+  background: white; box-shadow: 0 4px 14px #23768c08;
+}
+.chat-form label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.chat-form textarea { grid-column: 1; grid-row: 1; min-height: 52px; max-height: 110px; border: 0; padding: 12px 8px; background: transparent; resize: none; }
+.chat-form .form-footer { display: contents; }
+.chat-form .form-footer .small { grid-column: 1 / -1; grid-row: 2; max-width: none; padding-left: 8px; }
+.chat-form .primary { grid-column: 2; grid-row: 1; align-self: center; }
+.data-limit { font-size: .8rem; line-height: 1.6; padding: 0 6px; }
+#data-panel { padding: 28px; }
+.summary { padding: 20px; background: #f4fbfc; border: 1px solid #e4f1f4; }
+.summary-period { margin: 6px 0 16px; }
+.stat { padding: 18px; border: 1px solid #e0eff2; border-radius: 18px; }
+.stat dt { font-size: .875rem; }
+.stat dd { font-size: 1.45rem; color: var(--green); }
+.stat:nth-child(2) { background: #f2faff; }
+.stat:nth-child(3) { background: #f3faff; }
+.stat:nth-child(3) dd { color: #166795; }
+.stat:nth-child(4) { background: #fff7f5; }
+.stat:nth-child(4) dd { color: #a23d37; }
+.trend { padding-top: 14px; border-top: 1px solid var(--line); }
+.temperature-chart { border: 1px solid #e0eff2; background: white; border-radius: 22px; padding: 22px; }
+.temperature-chart figcaption { margin-top: 8px; }
+.chart-line { stroke: var(--green); stroke-width: 2.5; }
+.chart-point { fill: var(--green); }
+.chart-grid { stroke: #edf3f6; }
+.data-workspace { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 20px; align-items: start; }
+.data-editor { border: 1px solid #dceee6; background: #f1faf6; padding: 20px; margin: 0; }
+.data-editor summary { color: #126b60; }
+.data-records { border: 1px solid var(--line); border-radius: 18px; padding: 20px; background: white; min-width: 0; }
+.data-list { max-height: 460px; overflow-y: auto; padding-right: 6px; }
+.data-row { padding: 18px 0; }
+.record-actions .button { min-width: 62px; }
+.mobile-nav svg { display: block; width: 22px; height: 22px; margin: 0 auto 3px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 760px) {
+  .shell { padding: 14px 14px calc(94px + env(safe-area-inset-bottom)); }
+  .access-panel { display: flex; flex-direction: column; gap: 8px; min-height: 0; margin: 10px auto; padding: 22px 20px 36px; }
+  .access-art { width: min(260px, 100%); }
+  .access-content { width: 100%; text-align: center; }
+  .access-panel h1 { font-size: 1.65rem; margin: 8px 0 12px; }
+  .access-panel form { text-align: left; padding: 20px; margin-top: 20px; }
+  .access-panel .access-note { font-size: .75rem; }
+  .app-layout { display: block; }
+  .chat-panel { padding: 16px; }
+  .bree-art-slot { width: 200px; height: 134px; margin-bottom: 8px; }
+  .bree-welcome h2 { font-size: 1.2rem; }
+  .bree-welcome > p { font-size: .875rem; }
+  .suggestions { gap: 8px; margin-top: 16px; }
+  .suggestion { font-size: .8rem; padding: 12px; min-height: 78px; border-radius: 16px; }
+  .message { max-width: 96%; }
+  .chat-form { padding: 8px; gap: 4px 6px; border-radius: 18px; }
+  .chat-form .form-footer .primary { padding: 8px 10px; font-size: .8rem; }
+  .chat-form textarea { min-height: 48px; padding: 10px 6px; font-size: .9rem; }
+  .data-limit { font-size: .75rem; }
+  .mobile-nav { background: #fffffff5; padding-top: 6px; }
+  .mobile-nav button { padding: 6px; font-size: .8rem; }
+  .mobile-nav button[aria-current=page] { background: var(--mint); color: #0c6b63; }
+  #data-panel { padding: 18px; }
+  .summary { padding: 14px; }
+  .stats { gap: 8px; }
+  .stat { padding: 12px; }
+  .stat dd { font-size: 1.2rem; }
+  .temperature-chart { padding: 14px; }
+  .data-workspace { grid-template-columns: 1fr; gap: 16px; }
+  .data-editor, .data-records { padding: 16px; }
+  .data-list { max-height: none; padding-right: 0; }
+}
+@media (max-height: 600px) and (max-width: 760px) {
+  .chat-panel { padding: 12px; }
+  .bree-art-slot { width: 150px; height: 100px; }
+  .suggestions { margin-top: 10px; }
+}
