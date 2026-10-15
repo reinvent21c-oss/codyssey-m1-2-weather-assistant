@@ -70,13 +70,13 @@ Mock 기반 Python·JavaScript·Playwright 테스트로 정상/강수/무강수,
 
 남은 검증: **운영 연동·기능 활성화·지속 가용성은 미검증**. 단 한 시점의 HTTP 접근·응답 형식 확인이며 실제 모델 발표/갱신 지연은 일반 응답만으로 보장할 수 없음. 추가 실제 날씨 API 요청은 다시 승인을 받아야 함. 유료 GPT/실제 Firestore 검증·운영 배포·main 병합은 수행하지 않음.
 
-B-1 변경 후 전체 회귀 결과 (실제 외부 서비스 요청 없음):
+B-1 및 PNG 재사용 UI 변경 후 전체 회귀 결과 (실제 외부 서비스 요청 없음):
 
 | 검증 | PASS | FAIL |
 | --- | ---: | ---: |
 | Python 전체 오프라인 (`.\.venv\Scripts\python.exe -m tests.run_offline`) | 135 | 0 |
 | JavaScript 단위 (`npm.cmd test`) | 18 | 0 |
-| Playwright Mock 브라우저 (`npm.cmd run test:browser`) | 39 | 0 |
+| Playwright Mock 브라우저 (`npm.cmd run test:browser`) | 43 | 0 |
 
 기존 기준선의 Python 110개·JavaScript 12개·Playwright 17개를 포함한 전체 회귀 결과. Python 오프라인 실행기의 소켓/DNS 차단을 유지한 상태에서 실행. UI 테스트 산출물은 커밋하지 않음.
 
@@ -85,3 +85,22 @@ B-1은 데스크톱 1440px·모바일 390px/360px의 관리자/평가자 흐름,
 Mock 주요 화면은 로컬 `frontend/test-results/b1-{1440,390,360}-{initial,weather,reply}.png`에 생성함. 테스트용 응답임을 화면 상단에 명시. 이 스크린샷은 Git에 추가하지 않음.
 
 B-1의 실제 GPT 추천 품질·실제 대화 저장·운영 UI 연동은 미검증. 앞서 승인된 Open-Meteo 1회 검증만 유효하며 **B-1 작업의 추가 실제 날씨 요청은 0회**. 실제 GPT/Firestore 요청·운영 환경변수 변경·배포·main 병합은 수행하지 않음.
+
+## 기존 PNG 재사용 UI 품질 개선
+
+원본 `frontend/assets/bree-welcome.png`는 변경하지 않음. 새 캐릭터·외부 이미지·별도 래스터 아바타를 만들지 않고 동일 PNG를 사용함. 웰컴은 모바일 약 198px·데스크톱 230px로 확대하고, 채팅 아바타는 48~56px 원형 프레임에 CSS로 얼굴을 중심 배치함.
+
+흰색 화면과 진한 청록색 버튼, 하늘색/민트 포인트로 대비를 정리함. 첫 인사와 시각 선택을 우선 배치하고 과거 통계 질문은 아래쪽으로 이동함. 평가자 안내는 축약하고 이용 안내·예보 한계는 접기로 제공함. 입력창 placeholder를 짧게 하고 전송 버튼을 ‘전송’으로 줄여 입력 폭을 확보함. 날씨 기온·강수확률·풍속을 세 칸으로 강조하고 출처/조회 시각은 보조 정보로 표시함.
+
+B-1 행동 분리·유효성·권한·기존 기능과 모든 운영 경계는 유지. 간소화한 안내도 시각이 지난 경계에서 이유가 사라지지 않도록 검증함. 원본 PNG의 SHA256 일치도 확인함.
+
+새 주요 Mock 캡처 4장:
+
+- `frontend/test-results/ui-welcome-390.png`: 첫 인사 (390px)
+- `frontend/test-results/ui-weather-360.png`: 날씨 확인 후 (360px)
+- `frontend/test-results/ui-reply-390.png`: AI 답변 (390px)
+- `frontend/test-results/ui-desktop.png`: 데스크톱 인사와 날씨 요약
+
+캡처 및 ZIP은 Git에 추가하지 않음. 이번 UI 개선에서도 실제 날씨/GPT 호출·Firestore 쓰기·운영 환경변수 변경·병합·배포는 하지 않음.
+
+전체 결과: Python 오프라인 135 PASS / 0 FAIL, JavaScript 단위 18 PASS / 0 FAIL, Playwright Mock 브라우저 43 PASS / 0 FAIL. 각 명령 종료 코드 0.

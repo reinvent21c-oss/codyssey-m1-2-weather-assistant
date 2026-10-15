@@ -46,23 +46,30 @@ function renderMessages(pending) {
   const weatherPanel = $("chat-weather");
   target.replaceChildren();
   const messages = [...state.messages, ...(pending ? [{ role: "user", content: pending }, { role: "assistant", content: "브리가 생각하고 있어요…" }] : [])];
+  let pastQuestions;
   if (!messages.length) {
     const intro = element("div", undefined, "bree-welcome");
-    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", isAdmin ? "오늘 몇 시에 외출하나요? 시각을 골라 날씨를 확인해 주세요." : "오늘 몇 시에 외출하나요? 매 질문은 별도 대화로 답해드려요."));
+    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요!"), element("p", "오늘 몇 시에 외출하나요?"));
     const suggestions = element("div", undefined, "suggestions");
     for (const question of ["자료의 평균·최저·최고 일평균기온이 궁금해요.", "최근 관측 기온의 추세를 알려주세요."]) {
       const button = element("button", question, "suggestion"); button.type = "button";
       button.addEventListener("click", () => { if (!state.chatBusy && !state.historyBusy) { $("question").value = question; $("question").focus(); } });
       suggestions.append(button);
     }
-    const pastQuestions = element("details", undefined, "past-suggestions");
-    pastQuestions.append(element("summary", "과거 기온 통계 질문도 살펴보기"), suggestions);
-    intro.append(pastQuestions); target.append(intro);
+    pastQuestions = element("details", undefined, "past-suggestions");
+    pastQuestions.append(element("summary", "과거 기온 질문 살펴보기"), suggestions);
+    target.append(intro);
   }
   target.append(weatherPanel);
+  if (pastQuestions) target.append(pastQuestions);
   for (const message of messages) {
     const bubble = element("div", undefined, `message ${message.role === "user" ? "user" : "assistant"}`);
-    if (message.role === "assistant") bubble.append(breeImage("bree-avatar", ""));
+    if (message.role === "assistant") {
+      const avatar = element("span", undefined, "bree-avatar-frame");
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.append(breeImage("bree-avatar", ""));
+      bubble.append(avatar);
+    }
     bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), element("span", message.content)); target.append(bubble);
   }
   $("conversation-state").textContent = !isAdmin ? "매 질문은 별도 저장돼요. 개인정보를 입력하지 마세요." : state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";
@@ -138,7 +145,7 @@ async function sendQuestion(event) {
     state.messages = isAdmin ? [...state.messages, ...pair] : pair;
     $("question").value = ""; renderMessages(); status("chat-status", "답변과 질문이 저장되었어요."); await loadHistory();
   } catch (error) { if (error.status === 412) clearOuting(errorMessage(error, "chat")); renderMessages(); status("chat-status", errorMessage(error, "chat") + (isAdmin ? " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요." : " 저장 여부가 불확실하면 관리자에게 확인하고 다시 보내세요.") + " 질문은 입력창에 남겨 두었습니다.", true); }
-  finally { state.chatBusy = false; historyControls(); $("send").textContent = "브리에게 보내기"; $("question").focus(); }
+  finally { state.chatBusy = false; historyControls(); $("send").textContent = "전송"; $("question").focus(); }
 }
 function temperature(value) { return typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}°C` : "—"; }
 async function loadSummary() {
@@ -243,7 +250,7 @@ function clearOuting(reason = "외출 시각을 선택하고 날씨를 먼저 �
   $("outing-result").replaceChildren();
   $("chat-outing-result").replaceChildren();
   outingStatus(reason);
-  $("recommend-hint").textContent = reason;
+  $("recommend-hint").textContent = "";
   outingControls();
 }
 function currentOutingAt() {
@@ -265,17 +272,19 @@ function changeOutingTime(event) {
 function renderChatOuting(result) {
   const target = $("chat-outing-result"); target.replaceChildren();
   const forecastDay = result.forecast_at.slice(0, 10) === result.requested_at.slice(0, 10) ? "오늘" : "내일";
-  target.append(element("strong", "확인한 서울 시간대별 예보"),
-    element("p", `선택 오늘 ${result.requested_at.slice(11, 16)} · 예보 ${forecastDay} ${result.forecast_at.slice(11, 16)}`),
-    element("p", `${result.weather.temperature_2m}°C · 강수확률 ${result.weather.precipitation_probability}% · 풍속 ${result.weather.wind_speed_10m} m/s`),
-    element("p", `예보 강수량 ${result.weather.precipitation} mm${result.offset_minutes ? ` · 선택보다 ${result.offset_minutes}분 뒤 예보` : ""}`, "muted small"));
-  const source = element("p", undefined, "muted small");
+  const metrics = element("dl", undefined, "weather-metrics");
+  for (const [label, value, unit] of [["기온", result.weather.temperature_2m, "°C"], ["강수확률", result.weather.precipitation_probability, "%"], ["풍속", result.weather.wind_speed_10m, " m/s"]]) {
+    const item = element("div"); item.append(element("dt", label), element("dd", `${value}${unit}`)); metrics.append(item);
+  }
+  target.append(metrics, element("p", `선택 오늘 ${result.requested_at.slice(11, 16)} · 예보 ${forecastDay} ${result.forecast_at.slice(11, 16)}`, "forecast-time"),
+    element("p", `예보 강수량 ${result.weather.precipitation} mm${result.offset_minutes ? ` · ${result.offset_minutes}분 뒤 예보 사용` : ""}`, "muted small"));
+  const source = element("p", undefined, "forecast-source");
   const link = element("a", "Open-Meteo"); link.href = "https://open-meteo.com/";
   const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
-  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(" · 예보 요약"));
-  target.append(source, element("p", `서버 조회 ${result.fetched_at.slice(11, 16)} (서울) · 발표 시각 미확인`, "muted small"));
+  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(` · 조회 ${result.fetched_at.slice(11, 16)}`));
+  target.append(source);
   const note = element("details", undefined, "forecast-note");
-  note.append(element("summary", "예보 기준과 한계"), element("p", "시각은 Asia/Seoul 기준이에요. 강수확률·강수량은 예보 시각 전 1시간의 예측값이며 실제 관측이 아니에요. 전체 외출 시간의 날씨를 보장하지 않아요.", "muted small"));
+  note.append(element("summary", "예보 기준과 한계"), element("p", "시각은 서울(Asia/Seoul) 기준이며 서버 조회 시각을 표시해요. 모델 발표 시각은 미확인이에요. 강수확률·강수량은 예보 시각 전 1시간의 예측값이며 실제 관측이 아니에요. 예보를 요약한 자료로, 외출 전체 시간의 날씨를 보장하지 않아요.", "muted small"));
   target.append(note);
 }
 function renderOuting(result) {
@@ -320,8 +329,8 @@ async function loadOuting(event) {
     if (!validity.valid) { clearOuting(validity.reason); return; }
     renderOuting(result); renderChatOuting(result);
     verifiedOuting = result;
-    outingStatus("날씨를 확인했어요.");
-    $("recommend-hint").textContent = "버튼을 누르면 AI 호출과 대화 저장이 진행돼요.";
+    outingStatus();
+    $("recommend-hint").textContent = "AI 답변과 질문이 저장돼요.";
     outingTimer = setTimeout(() => clearOuting(outingValidity(result).reason || "날씨를 다시 확인해 주세요."), Math.max(1, validity.deadline - Date.now()));
   } catch (error) {
     if (generation !== outingGeneration) return;
@@ -331,7 +340,10 @@ async function loadOuting(event) {
 async function recommendOuting(event) {
   event.preventDefault();
   if (state.chatBusy || state.historyBusy || outingBusy) return;
-  if (!currentOutingAt()) { clearOuting($("recommend-hint").textContent); return; }
+  if (!currentOutingAt()) {
+    if (!$("chat-outing-status").textContent) clearOuting("날씨를 먼저 확인해 주세요.");
+    return;
+  }
   $("question").value = OUTING_QUESTION;
   await sendQuestion(event);
 }

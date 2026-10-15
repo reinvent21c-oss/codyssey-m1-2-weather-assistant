@@ -361,7 +361,7 @@ test("new chat uses keyboard submission, receives ID and refreshes conversation 
 test("Bree greeting and suggestions are UI only; history switching keeps server messages", async () => {
   const { page, context, calls, errors } = await fixture();
   try {
-    assert.match(await page.locator(".bree-welcome").innerText(), /안녕하세요, 브리예요! 외출 준비, 같이 해볼까요\?/);
+    assert.match(await page.locator(".bree-welcome").innerText(), /안녕하세요, 브리예요!/);
     assert(await page.locator(".bree-art-slot").evaluate(image => image.complete && image.naturalWidth > 0));
     assert.equal(await page.locator(".suggestion").count(), 2);
     await page.locator(".past-suggestions summary").click();
@@ -619,7 +619,7 @@ test("B-1: 조회 실패·선택 변경·10분 만료는 요약과 추천 자격
     await page.clock.fastForward(9 * 60000 + 1);
     assert(await page.locator("#recommend-outing").isDisabled());
     assert.equal(await page.locator("#chat-outing-result").innerText(), "");
-    assert.match(await page.locator("#recommend-hint").innerText(), /유효기간/);
+    assert.match(await page.locator("#chat-outing-status").innerText(), /유효기간/);
     assert.equal(calls.filter(call => call.path === "/api/outing-recommendation").length, 1);
     assert.equal(calls.filter(call => call.method !== "GET").length, 0);
   } finally { await context.close(); }
@@ -643,7 +643,7 @@ test("B-1: 조회 후 외출 시각이 지난 순간 AI 추천을 무효화해�
     await page.clock.fastForward(60001);
     assert(await page.locator("#recommend-outing").isDisabled());
     assert.equal(await page.locator("#chat-outing-result").innerText(), "");
-    assert.match(await page.locator("#recommend-hint").innerText(), /시각이 지났/);
+    assert.match(await page.locator("#chat-outing-status").innerText(), /시각이 지났/);
     assert.equal(calls.filter(call => call.path === "/api/chat").length, 0);
   } finally { await context.close(); }
 });
@@ -676,5 +676,64 @@ test("B-1: 날씨 조회 실패 후에는 AI 추천이 비활성화돼요", asyn
     assert(await page.locator("#recommend-outing").isDisabled());
     assert.equal(await page.locator("#chat-outing-result").innerText(), "");
     assert.equal(calls.filter(call => call.method !== "GET").length, 0);
+  } finally { await context.close(); }
+});
+
+for (const width of [360, 390, 1440]) {
+  test(`UI 품질: ${width}px 원본 캐릭터·얼굴 아바타·입력 폭·핵심 수치`, async () => {
+    const { page, context, errors } = await fixture({ mobile: width < 760, role: "evaluator" });
+    try {
+      await page.setViewportSize({ width, height: width < 760 ? 844 : 1000 });
+      await page.locator(".bree-art-slot").evaluate(image => image.decode());
+      const welcome = await page.locator(".bree-art-slot").boundingBox();
+      assert(welcome.width >= 190 && welcome.height >= 130);
+      const title = await page.locator(".bree-welcome h2").evaluate(node => ({ height: node.getBoundingClientRect().height, line: parseFloat(getComputedStyle(node).lineHeight) }));
+      assert(title.height <= title.line + 1);
+      const input = await page.locator("#question").boundingBox();
+      const send = await page.locator("#send").boundingBox();
+      assert(input.width > send.width * 2);
+      assert.equal(await page.locator("#send").innerText(), "전송");
+      const placeholderFits = await page.locator("#question").evaluate(node => {
+        const style = getComputedStyle(node); const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d"); context.font = `${style.fontSize} ${style.fontFamily}`;
+        return context.measureText(node.placeholder).width <= node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      });
+      assert(placeholderFits);
+      if (width === 390) await page.screenshot({ path: `${root}test-results/ui-welcome-390.png`, fullPage: true });
+      await page.locator("#chat-outing-time").fill("10:30"); await page.locator("#chat-outing-submit").click();
+      await page.waitForFunction(() => !document.getElementById("recommend-outing").disabled);
+      assert.equal(await page.locator(".weather-metrics dd").count(), 3);
+      assert.deepEqual(await page.locator(".weather-metrics dd").allTextContents(), ["18°C", "70%", "4 m/s"]);
+      await page.locator("#recommend-outing").scrollIntoViewIfNeeded();
+      if (width === 360) await page.screenshot({ path: `${root}test-results/ui-weather-360.png`, fullPage: true });
+      if (width === 1440) {
+        await page.locator("#messages").evaluate(node => { node.scrollTop = 0; });
+        await page.screenshot({ path: `${root}test-results/ui-desktop.png`, fullPage: true });
+      }
+      await page.locator("#recommend-outing").click();
+      await page.waitForFunction(() => !document.getElementById("send").disabled);
+      await page.locator(".bree-avatar").first().evaluate(image => image.decode());
+      await page.locator(".message.assistant").scrollIntoViewIfNeeded();
+      assert.equal(await page.locator(".bree-avatar").first().getAttribute("src"), "./assets/bree-welcome.png");
+      const face = await page.locator(".bree-avatar-frame").first().boundingBox();
+      assert(face.width >= 48 && face.height >= 48);
+      assert.equal(await page.locator(".bree-avatar-frame").first().evaluate(node => getComputedStyle(node).overflow), "hidden");
+      if (width === 390) await page.screenshot({ path: `${root}test-results/ui-reply-390.png`, fullPage: true });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+}
+
+test("UI 안내: 타이머보다 먼저 시각이 지난 추천 클릭도 이유를 보존해요", async () => {
+  const { page, context, calls } = await fixture({ mobile: true });
+  try {
+    await page.locator("#chat-outing-time").fill("10:30"); await page.locator("#chat-outing-submit").click();
+    await page.waitForFunction(() => !document.getElementById("recommend-outing").disabled);
+    await page.clock.setSystemTime(new Date("2026-10-15T10:31:00+09:00"));
+    await page.evaluate(() => document.getElementById("recommend-outing").dispatchEvent(new Event("click", { bubbles: true, cancelable: true })));
+    assert.match(await page.locator("#chat-outing-status").innerText(), /시각이 지났/);
+    assert(await page.locator("#recommend-outing").isDisabled());
+    assert.equal(calls.filter(call => call.path === "/api/chat").length, 0);
   } finally { await context.close(); }
 });

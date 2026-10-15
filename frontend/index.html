@@ -51,7 +51,7 @@
           <h1 id="outing-heading">오늘 뭐 챙기지?</h1>
           <p class="muted">오늘 외출할 시각을 알려주세요. 서울 중심부 예보로 준비를 도와드려요. GPS·자동 위치 추정은 하지 않아요.</p>
           <form id="outing-form" class="outing-form">
-            <div><label for="outing-time">오늘 외출 예정 시각 (서울)</label><input id="outing-time" type="time" step="60" required aria-describedby="outing-help"></div>
+            <div><label for="outing-time">오늘 외출 시각 · 서울</label><input id="outing-time" type="time" step="60" required aria-describedby="outing-help"></div>
             <button id="outing-submit" class="button primary" type="submit">외출 준비 확인</button>
           </form>
           <p id="outing-help" class="muted small">서울 기준 현재 이후의 오늘 시각만 지원해요. 다른 지역은 아직 지원하지 않아요.</p>
@@ -64,27 +64,27 @@
           <p id="conversation-state" class="muted small">새 질문을 보내면 대화가 저장됩니다.</p>
           <div id="messages" class="messages" role="log" aria-label="브리와의 채팅 메시지" aria-live="polite" aria-relevant="additions text">
             <section id="chat-weather" class="chat-weather" aria-labelledby="chat-weather-heading">
-              <h2 id="chat-weather-heading">서울 · 오늘의 외출 시각</h2>
+              <h2 id="chat-weather-heading">오늘의 외출 준비</h2>
               <form id="chat-outing-form" class="outing-form">
-                <div><label for="chat-outing-time">외출 예정 시각 (서울)</label><input id="chat-outing-time" type="time" step="60" required aria-describedby="chat-outing-help"></div>
+                <div><label for="chat-outing-time">외출 시각 · 서울</label><input id="chat-outing-time" type="time" step="60" required aria-describedby="chat-outing-help"></div>
                 <button id="chat-outing-submit" class="button secondary" type="submit">날씨 확인</button>
               </form>
-              <p id="chat-outing-help" class="muted small">서울 전용 · Asia/Seoul · 현재 이후의 오늘 시각만 선택해요. 위치를 추정하지 않아요.</p>
+              <p id="chat-outing-help" class="muted small">서울 기준 오늘 · 현재 이후 시각</p>
               <p id="chat-outing-status" class="status" role="status"></p>
               <div id="chat-outing-result"></div>
-              <button id="recommend-outing" class="button primary" type="button" disabled aria-describedby="recommend-hint">브리에게 추천받기</button>
-              <p id="recommend-hint" class="muted small">외출 시각을 선택하고 날씨를 먼저 확인해 주세요.</p>
+              <button id="recommend-outing" class="button primary" type="button" disabled aria-describedby="chat-outing-status recommend-hint">브리에게 추천받기</button>
+              <p id="recommend-hint" class="muted small">날씨 확인 후 AI 추천을 요청할 수 있어요.</p>
             </section>
           </div>
           <div class="composer">
-            <p id="evaluation-notice" class="muted small" hidden>평가자 모드 · 매 질문은 독립적으로 저장돼요. 관리자에게 보일 수 있으니 개인정보를 입력하지 마세요. 이전 대화는 제공하지 않아요.</p>
+            <p id="evaluation-notice" class="muted small" hidden>평가자 · 매 질문은 새 대화예요. 관리자에게 공개되니 개인정보는 제외해 주세요.</p>
             <p id="chat-status" class="status" role="status" aria-live="polite"></p>
             <form id="chat-form" class="chat-form">
               <label for="question">브리에게 물어보기</label>
-              <textarea id="question" name="question" rows="1" maxlength="2000" required placeholder="무엇부터 준비하면 좋을까요?"></textarea>
-              <div class="form-footer"><span class="muted small">최대 2,000자 · Ctrl/⌘+Enter 전송</span><button id="send" class="button primary" type="submit">브리에게 보내기</button></div>
+              <textarea id="question" name="question" rows="1" maxlength="2000" required placeholder="브리에게 물어보세요" aria-describedby="question-help"></textarea>
+              <div class="form-footer"><span id="question-help" class="muted small">2,000자 · Ctrl/⌘+Enter</span><button id="send" class="button primary" type="submit" aria-label="브리에게 보내기">전송</button></div>
             </form>
-            <p class="data-limit">오늘 예보와 과거 통계는 별도 자료예요. 질문·추천 요청 시 AI 호출과 대화 저장이 진행돼요.</p>
+            <details class="data-limit"><summary>이용 안내</summary><p>개인정보는 입력하지 마세요. 오늘 예보와 과거 통계는 별도 자료예요. 서울만 지원하며 위치를 수집하거나 추정하지 않아요. 날씨 확인은 AI를 호출하지 않으며, 질문·추천 요청 시 AI 호출과 대화 저장이 진행돼요.</p></details>
           </div>
         </section>
         <section id="data-panel" class="panel" aria-labelledby="data-heading" hidden>
