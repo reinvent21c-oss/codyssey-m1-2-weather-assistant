@@ -193,3 +193,32 @@ body[data-view=chat] footer { display: none; }
   .mobile-nav { display: flex; }
   .mobile-nav button { flex: 1; }
 }
+
+/* B-1: use the existing chat scroll area and palette for the weather step. */
+.chat-weather { flex-shrink: 0; width: 100%; padding: 16px; border: 1px solid #d6eee7; border-radius: 18px; background: #f0faf7; }
+.chat-weather h2 { font-size: 1rem; margin: 0 0 8px; color: var(--green); }
+.chat-weather p { margin: 6px 0; overflow-wrap: anywhere; }
+.chat-weather .outing-form { margin-top: 0; gap: 10px; }
+#chat-outing-result:not(:empty) { margin: 12px 0; padding: 12px; border: 1px solid #d7eaf0; border-radius: 14px; background: #f5fbff; }
+#recommend-outing { margin-top: 8px; }
+.bree-welcome h2 { font-size: 1.05rem; margin-bottom: 6px; }
+.past-suggestions { margin: 10px auto 0; font-size: .85rem; }
+.past-suggestions summary { cursor: pointer; }
+@media (max-width: 760px) {
+  .chat-weather { padding: 12px; }
+  .chat-weather .outing-form { flex-wrap: nowrap; align-items: end; }
+  .chat-weather .outing-form > div { min-width: 0; }
+  .chat-weather .outing-form button { width: auto; flex: none; padding: 10px 12px; }
+  #recommend-outing { width: 100%; }
+}
+
+.bree-welcome { flex-shrink: 0; margin: 0 auto; padding: 4px 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 4px 10px; text-align: left; }
+.bree-welcome .bree-art-slot { grid-column: 1; grid-row: 1 / 3; width: 72px; height: 64px; margin: 0; }
+.bree-welcome h2 { grid-column: 2; margin: 0; }
+.bree-welcome > p { grid-column: 2; margin: 0; font-size: .875rem; }
+.past-suggestions { grid-column: 1 / -1; margin-top: 6px; }
+
+#chat-outing-result { font-size: .875rem; }
+#chat-outing-result p { margin: 4px 0; }
+.forecast-note { font-size: .8rem; }
+.forecast-note summary { cursor: pointer; }

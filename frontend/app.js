@@ -1,5 +1,6 @@
 import { createApi, errorMessage, validRecord } from "./api.js";
 import { chartMessage, renderTemperatureChart } from "./chart.js";
+import { outingValidity, OUTING_QUESTION } from "./outing.js";
 
 const $ = id => document.getElementById(id);
 const state = { conversationId: null, messages: [], records: [], chatBusy: false, historyBusy: false, dataBusy: false, dataLoading: false, editDate: null };
@@ -31,6 +32,7 @@ function historyControls() {
   $("send").disabled = busy;
   $("question").disabled = busy;
   document.querySelectorAll("#conversation-list button").forEach(button => button.disabled = busy);
+  outingControls();
 }
 function breeImage(className, alt) {
   const image = element("img", undefined, className);
@@ -40,19 +42,24 @@ function breeImage(className, alt) {
   return image;
 }
 function renderMessages(pending) {
-  const target = $("messages"); target.replaceChildren();
+  const target = $("messages");
+  const weatherPanel = $("chat-weather");
+  target.replaceChildren();
   const messages = [...state.messages, ...(pending ? [{ role: "user", content: pending }, { role: "assistant", content: "브리가 생각하고 있어요…" }] : [])];
   if (!messages.length) {
     const intro = element("div", undefined, "bree-welcome");
-    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", "추천 질문은 입력만 채워요."));
+    intro.append(breeImage("bree-art-slot", "체크리스트를 들고 윙크하는 바람 요정 브리"), element("h2", "안녕하세요, 브리예요! 외출 준비, 같이 해볼까요?"), element("p", isAdmin ? "오늘 몇 시에 외출하나요? 시각을 골라 날씨를 확인해 주세요." : "오늘 몇 시에 외출하나요? 매 질문은 별도 대화로 답해드려요."));
     const suggestions = element("div", undefined, "suggestions");
     for (const question of ["자료의 평균·최저·최고 일평균기온이 궁금해요.", "최근 관측 기온의 추세를 알려주세요."]) {
       const button = element("button", question, "suggestion"); button.type = "button";
       button.addEventListener("click", () => { if (!state.chatBusy && !state.historyBusy) { $("question").value = question; $("question").focus(); } });
       suggestions.append(button);
     }
-    intro.append(suggestions); target.append(intro);
+    const pastQuestions = element("details", undefined, "past-suggestions");
+    pastQuestions.append(element("summary", "과거 기온 통계 질문도 살펴보기"), suggestions);
+    intro.append(pastQuestions); target.append(intro);
   }
+  target.append(weatherPanel);
   for (const message of messages) {
     const bubble = element("div", undefined, `message ${message.role === "user" ? "user" : "assistant"}`);
     if (message.role === "assistant") bubble.append(breeImage("bree-avatar", ""));
@@ -121,15 +128,16 @@ async function sendQuestion(event) {
   if (state.chatBusy || state.historyBusy) return;
   const question = $("question").value.trim();
   if (!question || [...question].length > 2000) { status("chat-status", "질문을 1~2,000자로 입력해 주세요.", true); return; }
+  const outingAt = currentOutingAt();
   state.chatBusy = true; historyControls(); $("send").textContent = "전송 중…"; renderMessages(question); status("chat-status", "AI 답변을 기다리는 중…");
   try {
-    const result = await api.chat(question, isAdmin ? state.conversationId : null, verifiedOutingAt);
+    const result = await api.chat(question, isAdmin ? state.conversationId : null, outingAt);
     if (typeof result.conversation_id !== "string" || typeof result.response !== "string" || !result.response.trim()) throw new Error();
     state.conversationId = isAdmin ? result.conversation_id : null;
     const pair = [{ role: "user", content: question }, { role: "assistant", content: result.response }];
     state.messages = isAdmin ? [...state.messages, ...pair] : pair;
     $("question").value = ""; renderMessages(); status("chat-status", "답변과 질문이 저장되었어요."); await loadHistory();
-  } catch (error) { renderMessages(); status("chat-status", errorMessage(error, "chat") + (isAdmin ? " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요." : " 저장 여부가 불확실하면 관리자에게 확인하고 다시 보내세요.") + " 질문은 입력창에 남겨 두었습니다.", true); }
+  } catch (error) { if (error.status === 412) clearOuting(errorMessage(error, "chat")); renderMessages(); status("chat-status", errorMessage(error, "chat") + (isAdmin ? " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요." : " 저장 여부가 불확실하면 관리자에게 확인하고 다시 보내세요.") + " 질문은 입력창에 남겨 두었습니다.", true); }
   finally { state.chatBusy = false; historyControls(); $("send").textContent = "브리에게 보내기"; $("question").focus(); }
 }
 function temperature(value) { return typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}°C` : "—"; }
@@ -212,14 +220,63 @@ function updateChatViewport() {
   const height = (window.visualViewport?.height || innerHeight) - $("chat-panel").getBoundingClientRect().top - navigationHeight - 12;
   $("chat-panel").style.setProperty("--chat-height", `${Math.max(160, height)}px`);
 }
-let verifiedOutingAt = null;
+let verifiedOuting = null;
+let outingTimer;
 let outingBusy = false;
 let outingGeneration = 0;
-function clearOuting() {
-  verifiedOutingAt = null;
+function outingStatus(message = "", error = false) {
+  status("outing-status", message, error);
+  status("chat-outing-status", message, error);
+}
+function outingControls() {
+  const busy = state.chatBusy || state.historyBusy;
+  for (const prefix of ["outing", "chat-outing"]) {
+    $(`${prefix}-submit`).disabled = outingBusy || busy;
+    $(`${prefix}-time`).disabled = busy;
+  }
+  $("recommend-outing").disabled = busy || outingBusy || !outingValidity(verifiedOuting).valid;
+}
+function clearOuting(reason = "외출 시각을 선택하고 날씨를 먼저 확인해 주세요.") {
+  verifiedOuting = null;
+  clearTimeout(outingTimer);
   outingGeneration += 1;
   $("outing-result").replaceChildren();
-  status("outing-status");
+  $("chat-outing-result").replaceChildren();
+  outingStatus(reason);
+  $("recommend-hint").textContent = reason;
+  outingControls();
+}
+function currentOutingAt() {
+  const validity = outingValidity(verifiedOuting);
+  if (!validity.valid) {
+    if (verifiedOuting) clearOuting(validity.reason);
+    return null;
+  }
+  return verifiedOuting.requested_at;
+}
+function checkOutingFreshness() {
+  currentOutingAt(); outingControls();
+}
+function changeOutingTime(event) {
+  const value = event.currentTarget.value;
+  $("outing-time").value = value; $("chat-outing-time").value = value;
+  clearOuting("외출 시각이 변경됐어요. 날씨를 다시 확인해 주세요.");
+}
+function renderChatOuting(result) {
+  const target = $("chat-outing-result"); target.replaceChildren();
+  const forecastDay = result.forecast_at.slice(0, 10) === result.requested_at.slice(0, 10) ? "오늘" : "내일";
+  target.append(element("strong", "확인한 서울 시간대별 예보"),
+    element("p", `선택 오늘 ${result.requested_at.slice(11, 16)} · 예보 ${forecastDay} ${result.forecast_at.slice(11, 16)}`),
+    element("p", `${result.weather.temperature_2m}°C · 강수확률 ${result.weather.precipitation_probability}% · 풍속 ${result.weather.wind_speed_10m} m/s`),
+    element("p", `예보 강수량 ${result.weather.precipitation} mm${result.offset_minutes ? ` · 선택보다 ${result.offset_minutes}분 뒤 예보` : ""}`, "muted small"));
+  const source = element("p", undefined, "muted small");
+  const link = element("a", "Open-Meteo"); link.href = "https://open-meteo.com/";
+  const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
+  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(" · 예보 요약"));
+  target.append(source, element("p", `서버 조회 ${result.fetched_at.slice(11, 16)} (서울) · 발표 시각 미확인`, "muted small"));
+  const note = element("details", undefined, "forecast-note");
+  note.append(element("summary", "예보 기준과 한계"), element("p", "시각은 Asia/Seoul 기준이에요. 강수확률·강수량은 예보 시각 전 1시간의 예측값이며 실제 관측이 아니에요. 전체 외출 시간의 날씨를 보장하지 않아요.", "muted small"));
+  target.append(note);
 }
 function renderOuting(result) {
   if (result.status !== "available" || !result.weather) throw new Error("unavailable");
@@ -245,30 +302,48 @@ function renderOuting(result) {
 }
 async function loadOuting(event) {
   event.preventDefault();
-  if (outingBusy) return;
+  if (outingBusy || state.chatBusy || state.historyBusy) return;
+  const selected = $(event.currentTarget.id === "chat-outing-form" ? "chat-outing-time" : "outing-time").value;
+  $("outing-time").value = selected; $("chat-outing-time").value = selected;
   clearOuting();
   const generation = outingGeneration;
-  outingBusy = true; $("outing-submit").disabled = true;
-  status("outing-status", "서울 시간대별 예보를 확인하는 중…");
+  outingBusy = true; outingControls();
+  outingStatus("서울 시간대별 예보를 확인하는 중… AI는 호출하지 않아요.");
   try {
-    const result = await api.outing($("outing-time").value);
+    const result = await api.outing(selected);
     if (generation !== outingGeneration) return;
     if (result.status !== "available") {
-      status("outing-status", typeof result.message === "string" ? result.message : "현재 날씨 정보 확인 불가", true);
+      clearOuting(typeof result.message === "string" ? result.message : "현재 날씨 정보 확인 불가");
       return;
     }
-    renderOuting(result); verifiedOutingAt = result.requested_at; status("outing-status", "확인된 예보로 준비했어요. 외출 직전에 다시 확인해 주세요.");
+    const validity = outingValidity(result, Date.now(), selected);
+    if (!validity.valid) { clearOuting(validity.reason); return; }
+    renderOuting(result); renderChatOuting(result);
+    verifiedOuting = result;
+    outingStatus("날씨를 확인했어요.");
+    $("recommend-hint").textContent = "버튼을 누르면 AI 호출과 대화 저장이 진행돼요.";
+    outingTimer = setTimeout(() => clearOuting(outingValidity(result).reason || "날씨를 다시 확인해 주세요."), Math.max(1, validity.deadline - Date.now()));
   } catch (error) {
     if (generation !== outingGeneration) return;
-    $("outing-result").replaceChildren();
-    const auth = [401, 403].includes(error.status) ? errorMessage(error) : "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요.";
-    status("outing-status", auth, true);
-  } finally { outingBusy = false; $("outing-submit").disabled = false; updateChatViewport(); }
+    clearOuting([401, 403].includes(error.status) ? errorMessage(error) : "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요.");
+  } finally { outingBusy = false; outingControls(); updateChatViewport(); }
+}
+async function recommendOuting(event) {
+  event.preventDefault();
+  if (state.chatBusy || state.historyBusy || outingBusy) return;
+  if (!currentOutingAt()) { clearOuting($("recommend-hint").textContent); return; }
+  $("question").value = OUTING_QUESTION;
+  await sendQuestion(event);
 }
 try {
   api = createApi(window.APP_CONFIG.API_BASE_URL, globalThis.fetch.bind(globalThis), () => evaluationCode);
   $("outing-form").addEventListener("submit", loadOuting);
-  $("outing-time").addEventListener("input", clearOuting);
+  $("outing-time").addEventListener("input", changeOutingTime);
+  $("chat-outing-form").addEventListener("submit", loadOuting);
+  $("chat-outing-time").addEventListener("input", changeOutingTime);
+  $("recommend-outing").addEventListener("click", recommendOuting);
+  window.addEventListener("focus", checkOutingFreshness);
+  document.addEventListener("visibilitychange", checkOutingFreshness);
   $("reenter-code").addEventListener("click", () => window.location.reload());
   $("access-form").addEventListener("submit", async event => {
     event.preventDefault();
@@ -282,9 +357,9 @@ try {
       if (result.authenticated !== true || !["admin", "evaluator"].includes(result.role)) throw new Error();
       applyRole(result.role);
       $("access-panel").hidden = true; $("main").hidden = false; $("mobile-nav").hidden = false; $("reenter-code").hidden = false;
-      showPanel("outing");
+      showPanel("chat");
       status("access-status");
-      await Promise.all([loadSummary(), loadHistory()]); $("outing-time").focus();
+      await Promise.all([loadSummary(), loadHistory()]); $("messages").scrollTop = 0;
     } catch (error) {
       evaluationCode = "";
       status("access-status", errorMessage(error) + " 서버가 잠들어 있었다면 잠시 기다린 뒤 다시 확인해 주세요.", true);

@@ -42,11 +42,11 @@
       </aside>
       <div class="workspace">
         <nav class="tabs desktop-nav" aria-label="주요 화면">
-          <button id="outing-tab" class="tab" type="button">오늘 외출 준비</button>
+          <button id="outing-tab" class="tab" type="button">상세 외출 준비</button>
           <button id="chat-tab" class="tab active" aria-current="page" type="button">브리와 대화</button>
           <button id="data-tab" class="tab" type="button">기온 자료 살펴보기</button>
         </nav>
-        <section id="outing-panel" class="panel outing-panel" aria-labelledby="outing-heading">
+        <section id="outing-panel" class="panel outing-panel" hidden aria-labelledby="outing-heading">
           <p class="eyebrow">서울 전용 · Asia/Seoul</p>
           <h1 id="outing-heading">오늘 뭐 챙기지?</h1>
           <p class="muted">오늘 외출할 시각을 알려주세요. 서울 중심부 예보로 준비를 도와드려요. GPS·자동 위치 추정은 하지 않아요.</p>
@@ -62,16 +62,29 @@
         <section id="chat-panel" class="panel chat-panel" aria-labelledby="chat-heading">
           <div class="section-head chat-heading-row"><div><p class="eyebrow">YOUR EVERYDAY BREE</p><h1 id="chat-heading">브리와 대화</h1></div><button id="new-conversation" class="button secondary" type="button">새 대화</button></div>
           <p id="conversation-state" class="muted small">새 질문을 보내면 대화가 저장됩니다.</p>
-          <div id="messages" class="messages" role="log" aria-label="브리와의 채팅 메시지" aria-live="polite" aria-relevant="additions text"></div>
+          <div id="messages" class="messages" role="log" aria-label="브리와의 채팅 메시지" aria-live="polite" aria-relevant="additions text">
+            <section id="chat-weather" class="chat-weather" aria-labelledby="chat-weather-heading">
+              <h2 id="chat-weather-heading">서울 · 오늘의 외출 시각</h2>
+              <form id="chat-outing-form" class="outing-form">
+                <div><label for="chat-outing-time">외출 예정 시각 (서울)</label><input id="chat-outing-time" type="time" step="60" required aria-describedby="chat-outing-help"></div>
+                <button id="chat-outing-submit" class="button secondary" type="submit">날씨 확인</button>
+              </form>
+              <p id="chat-outing-help" class="muted small">서울 전용 · Asia/Seoul · 현재 이후의 오늘 시각만 선택해요. 위치를 추정하지 않아요.</p>
+              <p id="chat-outing-status" class="status" role="status"></p>
+              <div id="chat-outing-result"></div>
+              <button id="recommend-outing" class="button primary" type="button" disabled aria-describedby="recommend-hint">브리에게 추천받기</button>
+              <p id="recommend-hint" class="muted small">외출 시각을 선택하고 날씨를 먼저 확인해 주세요.</p>
+            </section>
+          </div>
           <div class="composer">
-            <p id="evaluation-notice" class="muted small" hidden>평가자 모드 · 매 질문은 별도 대화로 저장되며 관리자에게 보일 수 있어요. 개인정보를 입력하지 마세요. 이전 대화 기록은 제공하지 않습니다.</p>
+            <p id="evaluation-notice" class="muted small" hidden>평가자 모드 · 매 질문은 독립적으로 저장돼요. 관리자에게 보일 수 있으니 개인정보를 입력하지 마세요. 이전 대화는 제공하지 않아요.</p>
             <p id="chat-status" class="status" role="status" aria-live="polite"></p>
             <form id="chat-form" class="chat-form">
               <label for="question">브리에게 물어보기</label>
               <textarea id="question" name="question" rows="1" maxlength="2000" required placeholder="무엇부터 준비하면 좋을까요?"></textarea>
               <div class="form-footer"><span class="muted small">최대 2,000자 · Ctrl/⌘+Enter 전송</span><button id="send" class="button primary" type="submit">브리에게 보내기</button></div>
             </form>
-            <p class="data-limit">채팅은 과거 일평균기온 통계를 참고해요. 외출 추천의 예보와는 구분됩니다. 먼저 확인한 외출 시각의 예보만 유효한 서버 캐시에서 채팅에 전달해요.</p>
+            <p class="data-limit">오늘 예보와 과거 통계는 별도 자료예요. 질문·추천 요청 시 AI 호출과 대화 저장이 진행돼요.</p>
           </div>
         </section>
         <section id="data-panel" class="panel" aria-labelledby="data-heading" hidden>

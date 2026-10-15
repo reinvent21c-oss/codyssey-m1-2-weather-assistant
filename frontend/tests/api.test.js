@@ -120,3 +120,29 @@ test("chat forwards only the selected aware timestamp, not weather measurements"
   await api.chat("외출 준비", null, "2026-10-15T11:00:00+09:00");
   assert.deepEqual(sent, { question: "외출 준비", outing_at: "2026-10-15T11:00:00+09:00" });
 });
+
+const { outingValidity, OUTING_QUESTION } = await import("../outing.js");
+const confirmedWeather = () => ({ status: "available", requested_at: "2026-10-15T11:00:00+09:00", forecast_at: "2026-10-15T11:00:00+09:00", fetched_at: "2026-10-15T10:00:00+09:00", valid_until: "2026-10-15T10:10:00+09:00", weather: { temperature_2m: 18, precipitation_probability: 0, precipitation: 0, wind_speed_10m: 4 } });
+test("B-1: 유효한 예보와 고정 추천 질문은 숫자나 위치를 지어내지 않아요", () => {
+  assert.equal(outingValidity(confirmedWeather(), Date.parse("2026-10-15T10:01:00+09:00"), "11:00").valid, true);
+  assert.match(OUTING_QUESTION, /서울/); assert.match(OUTING_QUESTION, /과거 관측 통계/);
+});
+test("B-1: 서버 캐시 만료 및 10분 경계에서 예보를 무효화해요", () => {
+  assert.equal(outingValidity(confirmedWeather(), Date.parse("2026-10-15T10:10:00+09:00")).valid, false);
+  const result = confirmedWeather(); result.valid_until = "2026-10-15T10:02:00+09:00";
+  assert.equal(outingValidity(result, Date.parse("2026-10-15T10:02:00+09:00")).valid, false);
+});
+test("B-1: 선택 시각 도달과 날짜 변경 및 선택 변경을 거부해요", () => {
+  const result = confirmedWeather(); result.requested_at = "2026-10-15T10:01:00+09:00";
+  assert.match(outingValidity(result, Date.parse(result.requested_at)).reason, /시각이 지났/);
+  assert.equal(outingValidity(confirmedWeather(), Date.parse("2026-10-16T00:00:00+09:00")).valid, false);
+  assert.equal(outingValidity(confirmedWeather(), Date.parse("2026-10-15T10:01:00+09:00"), "11:30").valid, false);
+});
+test("B-1: 실패·결측·유효하지 않은 조회 시각으로 AI 추천을 허용하지 않아요", () => {
+  const now = Date.parse("2026-10-15T10:01:00+09:00");
+  assert.equal(outingValidity(null, now).valid, false);
+  const result = confirmedWeather(); result.weather.precipitation_probability = null;
+  assert.equal(outingValidity(result, now).valid, false);
+  result.weather.precipitation_probability = 0; result.fetched_at = "invalid";
+  assert.equal(outingValidity(result, now).valid, false);
+});

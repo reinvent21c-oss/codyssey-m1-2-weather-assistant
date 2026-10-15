@@ -192,3 +192,14 @@ class WeatherTests(unittest.TestCase):
             result = service.recommend("11:00")
             self.assertEqual(result["status"], "unavailable")
             self.assertNotIn("PRIVATE_SENTINEL", str(result))
+
+    def test_departure_passed_during_fetch_is_unavailable(self):
+        self.clock.side_effect = [NOW, NOW.replace(second=1), NOW.replace(second=1)]
+        self.assertEqual(self.service.recommend("10:00")["status"], "unavailable")
+
+    def test_valid_until_reflects_remaining_cache_and_departure(self):
+        result = self.service.recommend("11:00")
+        self.assertEqual(result["valid_until"], "2026-10-15T10:10:00+09:00")
+        self.monotonic.return_value = 400
+        result = self.service.recommend("11:00")
+        self.assertEqual(result["valid_until"], "2026-10-15T10:05:00+09:00")

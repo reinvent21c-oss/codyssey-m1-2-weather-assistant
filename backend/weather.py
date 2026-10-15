@@ -47,7 +47,7 @@ class WeatherService:
         now = self.now().astimezone(SEOUL)
         result = {"status": "unavailable", "location": "서울", "timezone": "Asia/Seoul",
                   "requested_at": None, "forecast_at": None, "offset_minutes": None,
-                  "fetched_at": None, "model_issued_at": None,
+                  "fetched_at": None, "valid_until": None, "model_issued_at": None,
                   "source": "Open-Meteo", "source_url": "https://open-meteo.com/",
                   "weather": None, "clothing": None, "umbrella": None, "items": [], "reasons": [],
                   "message": "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요."}
@@ -82,8 +82,11 @@ class WeatherService:
                     self.retry_at = 0
                 body = self.cache
                 fetched_at = self.fetched_at
+                expires = self.expires
             # Recheck after I/O: don't return yesterday's selection across midnight.
-            if self.now().astimezone(SEOUL).date().isoformat() != day:
+            checked_at = self.now().astimezone(SEOUL)
+            remaining = expires - self.monotonic()
+            if checked_at.date().isoformat() != day or requested < checked_at or remaining <= 0:
                 return result
             hourly = body["hourly"]
             index = hourly["time"].index(target.strftime("%Y-%m-%dT%H:00"))
@@ -96,7 +99,7 @@ class WeatherService:
             clothing, umbrella, items, reasons = recommendations(values)
             return {**result, "status": "available", "message": "확인된 시간대별 예보를 참고했어요.",
                     "forecast_at": target.isoformat(), "offset_minutes": int((target - requested).total_seconds() / 60),
-                    "fetched_at": fetched_at, "weather": values, "clothing": clothing,
+                    "fetched_at": fetched_at, "valid_until": min(requested, checked_at + timedelta(seconds=remaining)).isoformat(), "weather": values, "clothing": clothing,
                     "umbrella": umbrella, "items": items, "reasons": reasons}
         except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
             return result
