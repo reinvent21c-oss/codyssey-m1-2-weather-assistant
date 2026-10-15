@@ -1,9 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { ApiError, createApi, errorMessage, validRecord } from "../api.js";
 
 const TEST_CODE = "TEST_ONLY_EVALUATION_CODE";
 const authenticatedApi = (url, fetcher) => createApi(url, fetcher, () => TEST_CODE);
+
+test("public config selects the API origin by exact page hostname", async () => {
+  const source = readFileSync(new URL("../config.js", import.meta.url), "utf8");
+  for (const [pageUrl, expected] of [
+    ["http://localhost:5173", "http://127.0.0.1:8000"],
+    ["http://127.0.0.1:5173", "http://127.0.0.1:8000"],
+    ["https://bree.vercel.app", "https://codyssey-m1-2-weather-assistant.onrender.com"],
+    ["https://bree-preview.vercel.app", "https://codyssey-m1-2-weather-assistant.onrender.com"],
+    ["https://localhost.example.com", "https://codyssey-m1-2-weather-assistant.onrender.com"],
+  ]) {
+    const window = { location: new URL(pageUrl) };
+    runInNewContext(source, { window });
+    assert.equal(window.APP_CONFIG.API_BASE_URL, expected);
+    assert(Object.isFrozen(window.APP_CONFIG));
+    const api = authenticatedApi(window.APP_CONFIG.API_BASE_URL, async url => {
+      assert.equal(url, `${expected}/api/access`);
+      return { ok: true, json: async () => ({ authenticated: true }) };
+    });
+    await api.access();
+  }
+});
 
 test("all ten endpoint methods and payloads match the backend", async () => {
   const requests = [];
