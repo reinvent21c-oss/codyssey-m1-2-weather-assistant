@@ -59,7 +59,7 @@ class WeatherService:
         if requested < now:
             return {**result, "message": "현재 날씨 정보 확인 불가. 서울 기준 현재 이후의 오늘 시각을 선택해 주세요."}
         if not self.enabled:
-            return {**result, "message": "현재 날씨 정보 확인 불가. 실제 날씨 API 검증 승인 대기 중입니다."}
+            return {**result, "message": "실제 날씨 추천 기능이 아직 활성화되지 않았습니다."}
         target = requested.replace(minute=0) + (timedelta(hours=1) if minute else timedelta())
         day = now.date().isoformat()
         try:

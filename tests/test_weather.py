@@ -100,12 +100,15 @@ class WeatherTests(unittest.TestCase):
         result = self.service.recommend("11:00")
         self.assertEqual(result["status"], "unavailable")
         self.assertNotIn("PRIVATE_SENTINEL", str(result))
+        self.assertEqual(result["message"], "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요.")
         self.service.recommend("12:00"); self.assertEqual(self.fetch.call_count, 2)
 
     def test_disabled_never_fetches(self):
         service = WeatherService(enabled=False, now=self.clock)
         service.fetch = Mock()
-        self.assertEqual(service.recommend("11:00")["status"], "unavailable")
+        result = service.recommend("11:00")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["message"], "실제 날씨 추천 기능이 아직 활성화되지 않았습니다.")
         service.fetch.assert_not_called()
 
     def test_transport_is_fixed_bounded_and_no_redirects(self):
