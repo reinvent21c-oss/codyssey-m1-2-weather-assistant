@@ -315,8 +315,9 @@ python3 -m http.server 5173 --bind 127.0.0.1 --directory frontend
 ```
 
 브라우저에서 `http://127.0.0.1:5173`을 엽니다. `file://`로 직접 열지 마세요.
-`frontend/config.js`의 공개 `API_BASE_URL`만 FastAPI 서버 주소로 변경합니다.
-기본 주소는 `http://127.0.0.1:8000`이며 `/api`를 붙이지 않습니다.
+`frontend/config.js`는 페이지 hostname이 `localhost` 또는 `127.0.0.1`이면
+`http://127.0.0.1:8000`을 사용하고, 그 외 호스트에서는
+`https://codyssey-m1-2-weather-assistant.onrender.com`을 사용합니다. `/api`는 붙이지 않습니다.
 이 설정에는 키나 인증정보를 넣지 않습니다. 브라우저는 기존 FastAPI API 10개만 호출하고
 Firebase·Codyssey GPT API를 직접 호출하지 않습니다. `localhost`와 `127.0.0.1`은
 서로 다른 origin이므로 실제 접속한 주소와 백엔드 `ALLOWED_ORIGINS`를 일치시켜야 합니다.
@@ -458,10 +459,12 @@ Firebase는 기존 모듈을 사용하며 프로젝트 ID와 서비스 계정의
 - Framework Preset: Other, 빌드·설치 명령 없음, Output Directory: `.`
 - `frontend/vercel.json`이 정적 설정과 공개 config.js의 캐시 방지를 제공합니다.
 - `.vercelignore`로 테스트·스크린샷·node_modules를 배포 파일에서 제외합니다.
-- **실제 Render HTTPS URL 입력 위치:** `frontend/config.js`의 `API_BASE_URL`.
-  서버 origin만 넣고 `/api`는 붙이지 않습니다. 이 URL은 공개 정보입니다.
+- `frontend/config.js`는 Vercel에서 공개 Render origin
+  `https://codyssey-m1-2-weather-assistant.onrender.com`을 사용합니다.
+  로컬 개발 주소는 유지하며 별도 빌드나 환경변수 치환은 필요하지 않습니다.
 - **실제 Vercel HTTPS URL 입력 위치:** Render의 `ALLOWED_ORIGINS`.
-  지정한 배포 origin과 정확히 일치시킵니다. 임의 preview origin을 와일드카드로 허용하지 않습니다.
+  배포 승인 후 사용자가 실제 배포 origin을 수동 등록해야 합니다. 임의 preview origin은
+  기본 CORS 차단이 정상이며 와일드카드로 허용하지 않습니다.
 - 브라우저에는 접근 코드를 사용자가 입력할 뿐 Firebase·OpenAI 키를 포함하지 않습니다.
 
 ### 배포 후 검증 체크리스트 (이번에는 미실행)

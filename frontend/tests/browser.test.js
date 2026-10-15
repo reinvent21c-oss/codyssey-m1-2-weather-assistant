@@ -27,7 +27,9 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin" } = {}) {
+async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
+  const pageOrigin = hosted ? "https://bree-test.vercel.app" : origin;
+  const apiOrigin = hosted ? "https://codyssey-m1-2-weather-assistant.onrender.com" : "http://127.0.0.1:8000";
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
   const page = await context.newPage(); const errors = []; const calls = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -39,13 +41,18 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
   }));
   await context.route("**/*", async route => {
     const request = route.request(); const url = new URL(request.url());
-    if (url.origin === origin) return route.continue();
-    if (url.origin !== "http://127.0.0.1:8000") { errors.push(`Unexpected external request: ${url.origin}`); return route.abort(); }
+    if (url.origin === pageOrigin) {
+      if (!hosted) return route.continue();
+      // Serve local assets under a synthetic HTTPS host without contacting Vercel.
+      const response = await route.fetch({ url: `${origin}${url.pathname}` });
+      return route.fulfill({ response });
+    }
+    if (url.origin !== apiOrigin) { errors.push(`Unexpected external request: ${url.origin}`); return route.abort(); }
     const method = request.method(); const path = url.pathname; const body = request.postDataJSON(); calls.push({ method, path, body });
     assert(!request.url().includes(TEST_CODE));
     const suppliedCode = request.headers()["x-evaluation-code"];
     if (suppliedCode !== TEST_CODE) {
-      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Evaluation access denied." }), headers: { "Access-Control-Allow-Origin": origin } });
+      await route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ detail: "Evaluation access denied." }), headers: { "Access-Control-Allow-Origin": pageOrigin } });
       return;
     }
     let result; let status = 200;
@@ -78,9 +85,9 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
       else if (method === "DELETE") { const id = path.split("/").at(-1); data.splice(data.findIndex(record => record.date === id), 1); result = { id, deleted: true }; }
     }
     if (result === undefined) throw new Error(`Unhandled mock request: ${method} ${path}`);
-    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result), headers: { "Access-Control-Allow-Origin": origin } });
+    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(result), headers: { "Access-Control-Allow-Origin": pageOrigin } });
   });
-  await page.goto(origin);
+  await page.goto(pageOrigin);
   if (authenticate) {
     await page.locator("#access-code").fill(TEST_CODE); await page.locator("#access-submit").click();
     await page.waitForSelector("#main:not([hidden])");
@@ -93,6 +100,20 @@ async function openView(page, view) {
   const mobile = page.viewportSize().width <= 760;
   await page.locator(mobile ? `#mobile-${view}` : view === "data" ? "#data-tab" : "#chat-tab").click();
 }
+
+test("Vercel hostname uses Render for authentication and data with Mock responses", async () => {
+  const { page, context, errors, calls } = await fixture({ hosted: true });
+  try {
+    assert.equal(await page.evaluate(() => window.APP_CONFIG.API_BASE_URL), "https://codyssey-m1-2-weather-assistant.onrender.com");
+    await openView(page, "data");
+    await page.waitForFunction(() => document.getElementById("summary-content").textContent.includes("2건"));
+    assert(calls.some(call => call.path === "/api/access"));
+    assert(calls.some(call => call.path === "/api/data"));
+    assert(calls.every(call => !call.path.startsWith("/api/api/")));
+    assert.match(await page.locator("#summary-content").innerText(), /2건/);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
 
 test("desktop: summary, chat loading and duplicate prevention, history and XSS safety", async () => {
   const { page, context, errors, calls } = await fixture();
