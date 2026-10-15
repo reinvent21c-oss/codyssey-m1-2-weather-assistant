@@ -1,5 +1,5 @@
 // Pure UI validity checks. The server rechecks its cache before paid AI work.
-export const OUTING_QUESTION = "선택한 서울의 오늘 외출 시각 예보를 바탕으로 옷차림, 우산, 준비물과 간단한 이유를 추천해 주세요. 과거 관측 통계와 오늘의 예보는 구분해 주세요.";
+export const OUTING_QUESTION = "오늘 이 시간에 뭘 챙기면 좋을까?";
 export function outingValidity(result, now = Date.now(), selectedTime) {
   const invalid = reason => ({ valid: false, reason });
   if (!result || result.status !== "available") return invalid("외출 시각을 선택하고 날씨를 먼저 확인해 주세요.");

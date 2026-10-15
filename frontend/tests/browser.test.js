@@ -12,12 +12,13 @@ const firstId = "11111111-1111-4111-8111-111111111111";
 const secondId = "22222222-2222-4222-8222-222222222222";
 const malicious = '<img src=x onerror="window.XSS_EXECUTED=true">';
 const TEST_CODE = "TEST_ONLY_EVALUATION_CODE";
+const formattedReply = "**옷차림**: 예보 기온 **18°C**에 맞춰 ***가벼운 겉옷***을 챙겨요.\n**우산**: 강수확률 **70%**라 ***우산***을 챙겨요.\n**준비물**: ***방수 덮개***를 준비해요.\n**이유**: 오늘의 예보이며 과거 관측 통계와는 별도예요.";
 
 before(async () => {
   await mkdir(`${root}test-results`, { recursive: true });
   server = createServer(async (request, response) => {
     const name = new URL(request.url, "http://localhost").pathname.slice(1) || "index.html";
-    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "outing.js", "styles.css", "theme.css", "assets/bree-welcome.png"].includes(name)) { response.writeHead(404); response.end(); return; }
+    if (!["index.html", "config.js", "app.js", "api.js", "chart.js", "outing.js", "emphasis.js", "styles.css", "theme.css", "assets/bree-welcome.png"].includes(name)) { response.writeHead(404); response.end(); return; }
     const data = await readFile(`${root}${name}`);
     response.setHeader("Content-Type", name.endsWith("png") ? "image/png" : name.endsWith("js") ? "application/javascript" : name.endsWith("css") ? "text/css" : "text/html; charset=utf-8"); response.end(data);
   });
@@ -27,7 +28,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ weatherDelay = 0, initialView = "chat", weatherUnavailable = false, mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
+async function fixture({ chatReply, historyReply, weatherDelay = 0, initialView = "chat", weatherUnavailable = false, mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
   const pageOrigin = hosted ? "https://bree-test.vercel.app" : origin;
   const apiOrigin = hosted ? "https://codyssey-m1-2-weather-assistant.onrender.com" : "http://127.0.0.1:8000";
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
@@ -37,7 +38,7 @@ async function fixture({ weatherDelay = 0, initialView = "chat", weatherUnavaila
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   const data = observations ?? (empty ? [] : [{ date: "2025-10-02", value: 0, memo: "Mock 관측치" }, { date: "2025-10-01", value: -1, memo: malicious }]);
-  const conversations = new Map(empty ? [] : [[firstId, { id: firstId, created_at: "2025-10-01T00:00:00Z", updated_at: "2025-10-02T00:00:00Z", messages: [{ role: "user", content: "이전 테스트 질문" }, { role: "assistant", content: malicious }] }]]);
+  const conversations = new Map(empty ? [] : [[firstId, { id: firstId, created_at: "2025-10-01T00:00:00Z", updated_at: "2025-10-02T00:00:00Z", messages: [{ role: "user", content: "이전 테스트 질문" }, { role: "assistant", content: historyReply ?? malicious }] }]]);
   await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {
     const banner = document.createElement("p"); banner.textContent = "테스트용 Mock 응답 · 실제 데이터 및 AI 답변 아님"; banner.style.cssText = "background:#ffedb8;padding:8px;text-align:center;margin:0"; document.body.prepend(banner);
   }));
@@ -91,7 +92,7 @@ async function fixture({ weatherDelay = 0, initialView = "chat", weatherUnavaila
       else {
         const id = body.conversation_id || secondId;
         if (!conversations.has(id)) conversations.set(id, { id, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", messages: [] });
-        result = { conversation_id: id, response: body.outing_at ? "Mock 브리 추천: 서울의 선택 시각 예보 기온 18°C와 강수확률 70%를 참고해 가벼운 겉옷과 우산, 방수 가방을 챙겨요. 과거 기온 통계와는 별도 예보예요." : "Mock 테스트 답변: 과거 관측 자료이며 실시간 날씨가 아닙니다." };
+        result = { conversation_id: id, response: chatReply ?? (body.outing_at ? formattedReply : "Mock 테스트 답변: 과거 관측 자료이며 실시간 날씨가 아닙니다.") };
         conversations.get(id).messages.push({ role: "user", content: body.question }, { role: "assistant", content: result.response });
       }
     } else if (path === "/api/data" && method === "GET") { status = dataReadError || 200; result = dataReadError ? { detail: "PRIVATE_DETAIL" } : data; }
@@ -595,7 +596,8 @@ for (const width of [1440, 390, 360]) {
         const aiCalls = calls.filter(call => call.path === "/api/chat");
         assert.equal(aiCalls.length, 1);
         assert.equal(aiCalls[0].body.outing_at, "2026-10-15T10:30:00+09:00");
-        assert.match(aiCalls[0].body.question, /과거/);
+        assert.equal(aiCalls[0].body.question, "오늘 이 시간에 뭘 챙기면 좋을까?");
+        assert.equal(await page.locator(".message.user .message-content").first().innerText(), aiCalls[0].body.question);
         assert.equal(aiCalls[0].body.weather, undefined);
         assert.equal(await page.locator(".message.assistant").count(), 1);
         if (role === "evaluator") await page.screenshot({ path: `${root}test-results/b1-${width}-reply.png`, fullPage: true });
@@ -656,7 +658,7 @@ for (const chatError of [429, 502, 503, 412]) {
       await page.locator("#recommend-outing").click();
       await page.waitForFunction(() => !document.getElementById("send").disabled);
       assert.equal(calls.filter(call => call.path === "/api/chat").length, 1);
-      assert.match(await page.locator("#question").inputValue(), /선택한 서울/);
+      assert.equal(await page.locator("#question").inputValue(), "오늘 이 시간에 뭘 챙기면 좋을까?");
       assert.equal(await page.locator(".message.assistant").count(), 0);
       assert.match(await page.locator("#chat-status").innerText(), chatError === 429 ? /한도/ : chatError === 503 ? /저장소/ : chatError === 412 ? /날씨/ : /AI 답변/);
       if (chatError === 412) {
@@ -699,17 +701,14 @@ for (const width of [360, 390, 1440]) {
         return context.measureText(node.placeholder).width <= node.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       });
       assert(placeholderFits);
-      if (width === 390) await page.screenshot({ path: `${root}test-results/ui-welcome-390.png`, fullPage: true });
+      if (width === 390) await page.screenshot({ path: `${root}test-results/final-welcome-390.png`, fullPage: true });
       await page.locator("#chat-outing-time").fill("10:30"); await page.locator("#chat-outing-submit").click();
       await page.waitForFunction(() => !document.getElementById("recommend-outing").disabled);
       assert.equal(await page.locator(".weather-metrics dd").count(), 3);
       assert.deepEqual(await page.locator(".weather-metrics dd").allTextContents(), ["18°C", "70%", "4 m/s"]);
       await page.locator("#recommend-outing").scrollIntoViewIfNeeded();
-      if (width === 360) await page.screenshot({ path: `${root}test-results/ui-weather-360.png`, fullPage: true });
-      if (width === 1440) {
-        await page.locator("#messages").evaluate(node => { node.scrollTop = 0; });
-        await page.screenshot({ path: `${root}test-results/ui-desktop.png`, fullPage: true });
-      }
+      if (width === 360) await page.screenshot({ path: `${root}test-results/final-weather-360.png`, fullPage: true });
+
       await page.locator("#recommend-outing").click();
       await page.waitForFunction(() => !document.getElementById("send").disabled);
       await page.locator(".bree-avatar").first().evaluate(image => image.decode());
@@ -718,7 +717,8 @@ for (const width of [360, 390, 1440]) {
       const face = await page.locator(".bree-avatar-frame").first().boundingBox();
       assert(face.width >= 48 && face.height >= 48);
       assert.equal(await page.locator(".bree-avatar-frame").first().evaluate(node => getComputedStyle(node).overflow), "hidden");
-      if (width === 390) await page.screenshot({ path: `${root}test-results/ui-reply-390.png`, fullPage: true });
+      if (width === 390) await page.screenshot({ path: `${root}test-results/final-ai-390.png`, fullPage: true });
+      if (width === 1440) await page.screenshot({ path: `${root}test-results/final-desktop.png`, fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
@@ -735,5 +735,99 @@ test("UI 안내: 타이머보다 먼저 시각이 지난 추천 클릭도 이유
     assert.match(await page.locator("#chat-outing-status").innerText(), /시각이 지났/);
     assert(await page.locator("#recommend-outing").isDisabled());
     assert.equal(calls.filter(call => call.path === "/api/chat").length, 0);
+  } finally { await context.close(); }
+});
+
+async function accessibleInChat(page, selector) {
+  const node = page.locator(selector).first();
+  await node.scrollIntoViewIfNeeded();
+  assert(await node.evaluate(element => {
+    const r = element.getBoundingClientRect(); const stream = document.getElementById("messages").getBoundingClientRect();
+    const composer = document.querySelector(".composer").getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    return r.top >= stream.top - 1 && r.bottom <= Math.min(stream.bottom, composer.top) + 1 && element.contains(document.elementFromPoint(x, y));
+  }), `${selector}는 스크롤 후 입력창에 가려지지 않아야 합니다.`);
+}
+for (const width of [360, 390]) {
+  test(`모바일 접근: ${width}px 인사·시각·날씨·긴 답변·입력 포커스`, async () => {
+    const reply = Array.from({ length: 20 }, (_, index) => `문단 ${index + 1}: **준비물** 안내와 확인한 예보는 과거 통계와 다른 자료예요. ***바람막이***를 준비하고 필요에 맞게 질문해 주세요.`).join("\n\n");
+    const { page, context, calls, errors } = await fixture({ mobile: true, role: "evaluator", chatReply: reply });
+    try {
+      await page.setViewportSize({ width, height: 844 });
+      await accessibleInChat(page, ".bree-welcome h2");
+      await accessibleInChat(page, "#chat-outing-time");
+      await page.locator("#chat-outing-time").fill("10:30"); await page.locator("#chat-outing-time").focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), "chat-outing-time");
+      await accessibleInChat(page, "#chat-outing-submit"); await page.locator("#chat-outing-submit").click();
+      await page.waitForFunction(() => !document.getElementById("recommend-outing").disabled);
+      await accessibleInChat(page, ".weather-metrics dd");
+      await accessibleInChat(page, "#chat-outing-result .forecast-source a");
+      await accessibleInChat(page, "#recommend-outing"); await page.locator("#recommend-outing").click();
+      await page.waitForFunction(() => !document.getElementById("send").disabled);
+      for (const height of [844, 500]) {
+        await page.setViewportSize({ width, height });
+        await page.locator("#question").focus();
+        const composerAccessible = await page.locator("#question").evaluate(input => {
+          const r = input.getBoundingClientRect(); const nav = document.getElementById("mobile-nav").getBoundingClientRect();
+          return document.activeElement === input && r.top >= 0 && r.bottom <= nav.top && input.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+        });
+        assert(composerAccessible);
+        for (const edge of ["first", "last"]) {
+          assert(await page.evaluate(edge => {
+            const bubble = document.querySelector(".message.assistant");
+            const content = bubble.querySelector(".message-content") || bubble.lastElementChild;
+            const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT); const texts = [];
+            while (walker.nextNode()) if (walker.currentNode.textContent.trim()) texts.push(walker.currentNode);
+            const text = edge === "first" ? texts[0] : texts.at(-1); const range = document.createRange();
+            const offset = edge === "first" ? 0 : text.length - 1;
+            range.setStart(text, offset); range.setEnd(text, offset + 1);
+            const stream = document.getElementById("messages"); let r = range.getBoundingClientRect();
+            stream.scrollTop += r.top - stream.getBoundingClientRect().top - 8;
+            r = range.getBoundingClientRect(); const box = stream.getBoundingClientRect();
+            const visible = r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+            return visible && bubble.contains(document.elementFromPoint(r.left + Math.max(r.width / 2, 1), r.top + r.height / 2));
+          }, edge), `${height}px에서 긴 답변 ${edge} 부분에 접근할 수 있어야 합니다.`);
+        }
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      }
+      assert.equal(calls.filter(call => call.path === "/api/chat").length, 1);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+}
+
+test("제한 서식: 이전 대화도 같은 규칙으로 표시하고 HTML은 실행하지 않아요", async () => {
+  const saved = formattedReply + '\n**입력 원문**: <img src=x onerror="window.XSS_EXECUTED=true"> [링크](javascript:alert(1))';
+  const { page, context, errors } = await fixture({ role: "admin", historyReply: saved });
+  try {
+    await page.locator(".conversation-open").click();
+    await page.waitForFunction(() => document.querySelectorAll(".message").length === 2);
+    assert.deepEqual(await page.locator(".message.assistant .recommended-item").allTextContents(), ["가벼운 겉옷", "우산", "방수 덮개"]);
+    const bold = await page.locator(".message.assistant strong:not(.recommended-item)").allTextContents();
+    for (const value of ["옷차림", "18°C", "우산", "70%", "준비물", "이유"]) assert(bold.includes(value));
+    assert.equal(await page.locator(".message-content img, .message-content a, .message-content script, .message-content svg").count(), 0);
+    assert((await page.locator(".message.assistant .message-content").innerText()).includes('<img src=x onerror="window.XSS_EXECUTED=true">'));
+    assert.equal(await page.evaluate(() => window.XSS_EXECUTED), undefined);
+    const itemColor = await page.locator(".recommended-item").first().evaluate(node => getComputedStyle(node).color);
+    assert.equal(itemColor, "rgb(9, 103, 95)");
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+test("제한 서식: 일반 답변·부정 표현·임의 HTML과 사용자 Markdown은 안전한 텍스트예요", async () => {
+  const reply = '일반 텍스트 답변이에요.\n**우산**: 우산은 필요하지 않아요.\n***우산***은 필요하지 않아요.\n***목도리***는 필요 없어요.\n**<img src=x onerror="window.XSS_EXECUTED=true">**\n<svg onload="window.XSS_EXECUTED=true"></svg> **닫히지 않음';
+  const { page, context, errors } = await fixture({ role: "evaluator", chatReply: reply });
+  try {
+    const question = '**사용자 문구** <img src=x onerror="window.XSS_EXECUTED=true">';
+    await page.locator("#question").fill(question); await page.locator("#send").click();
+    await page.waitForFunction(() => !document.getElementById("send").disabled);
+    assert.equal(await page.locator(".message.user .message-content").innerText(), question);
+    assert.equal(await page.locator(".message.user strong").count(), 0);
+    assert.equal(await page.locator(".recommended-item").count(), 0);
+    assert.equal(await page.locator(".message-content img, .message-content svg, .message-content script").count(), 0);
+    assert.match(await page.locator(".message.assistant .message-content").innerText(), /일반 텍스트 답변이에요/);
+    assert.match(await page.locator(".message.assistant .message-content").innerText(), /우산은 필요하지 않아요/);
+    assert((await page.locator(".message.assistant .message-content").innerText()).includes("**닫히지 않음"));
+    assert.equal(await page.evaluate(() => window.XSS_EXECUTED), undefined);
+    assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

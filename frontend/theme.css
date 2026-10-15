@@ -276,3 +276,8 @@ body[data-role=evaluator] #conversation-state { display: none; }
   .mobile-nav { background: #fff; border-top: 1px solid var(--line); }
   .mobile-nav button { color: #526273; }
 }
+
+/* Limited model-selected emphasis; keep the approved layout and palette. */
+.message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-content strong { font-weight: 700; color: inherit; }
+.message-content strong.recommended-item { color: #09675f; }

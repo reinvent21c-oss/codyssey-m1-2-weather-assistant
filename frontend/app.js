@@ -1,6 +1,7 @@
 import { createApi, errorMessage, validRecord } from "./api.js";
 import { chartMessage, renderTemperatureChart } from "./chart.js";
 import { outingValidity, OUTING_QUESTION } from "./outing.js";
+import { renderAssistantText } from "./emphasis.js";
 
 const $ = id => document.getElementById(id);
 const state = { conversationId: null, messages: [], records: [], chatBusy: false, historyBusy: false, dataBusy: false, dataLoading: false, editDate: null };
@@ -70,7 +71,11 @@ function renderMessages(pending) {
       avatar.append(breeImage("bree-avatar", ""));
       bubble.append(avatar);
     }
-    bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), element("span", message.content)); target.append(bubble);
+    const content = element("span", undefined, "message-content");
+    if (message.role === "assistant") renderAssistantText(content, message.content);
+    else content.textContent = message.content;
+    bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), content);
+    target.append(bubble);
   }
   $("conversation-state").textContent = !isAdmin ? "매 질문은 별도 저장돼요. 개인정보를 입력하지 마세요." : state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";
   target.scrollTop = messages.length ? target.scrollHeight : 0;

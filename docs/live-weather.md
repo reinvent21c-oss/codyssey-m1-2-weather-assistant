@@ -74,9 +74,9 @@ B-1 및 PNG 재사용 UI 변경 후 전체 회귀 결과 (실제 외부 서비�
 
 | 검증 | PASS | FAIL |
 | --- | ---: | ---: |
-| Python 전체 오프라인 (`.\.venv\Scripts\python.exe -m tests.run_offline`) | 135 | 0 |
-| JavaScript 단위 (`npm.cmd test`) | 18 | 0 |
-| Playwright Mock 브라우저 (`npm.cmd run test:browser`) | 43 | 0 |
+| Python 전체 오프라인 (`.\.venv\Scripts\python.exe -m tests.run_offline`) | 136 | 0 |
+| JavaScript 단위 (`npm.cmd test`) | 23 | 0 |
+| Playwright Mock 브라우저 (`npm.cmd run test:browser`) | 47 | 0 |
 
 기존 기준선의 Python 110개·JavaScript 12개·Playwright 17개를 포함한 전체 회귀 결과. Python 오프라인 실행기의 소켓/DNS 차단을 유지한 상태에서 실행. UI 테스트 산출물은 커밋하지 않음.
 
@@ -104,3 +104,29 @@ B-1 행동 분리·유효성·권한·기존 기능과 모든 운영 경계는 �
 캡처 및 ZIP은 Git에 추가하지 않음. 이번 UI 개선에서도 실제 날씨/GPT 호출·Firestore 쓰기·운영 환경변수 변경·병합·배포는 하지 않음.
 
 전체 결과: Python 오프라인 135 PASS / 0 FAIL, JavaScript 단위 18 PASS / 0 FAIL, Playwright Mock 브라우저 43 PASS / 0 FAIL. 각 명령 종료 코드 0.
+
+## B-1 최종 개선 — 스크롤 검증·짧은 질문·안전한 강조
+
+### 모바일 가림 판단
+
+구현 변경 전 360px·390px Mock 브라우저에서 첫 인사·시각 입력·날씨 수치/출처·추천 버튼, 입력창 포커스를 확인함. 긴 답변은 첫 글자와 끝 글자를 실제 스크롤로 이동해 입력창 아래에 가려지지 않고 접근 가능한지 hit-test로 확인함. 높이 844px와 500px를 검사했고 모두 통과함. 이전 캡처의 잘린 부분은 채팅 내부 스크롤 위치 때문이며 레이아웃의 크기·여백·스크롤 구조는 변경하지 않음. 이번 CSS 추가는 답변의 제한 강조/줄바꿈 규칙뿐임. 실제 OS 가상 키보드는 실행하지 않은 headless 브라우저 검사임.
+
+### 사용자 질문과 저장
+
+추천 버튼 질문은 **오늘 이 시간에 뭘 챙기면 좋을까?**로 통일함. 사용자 말풍선·GPT의 user 메시지·Firestore에 저장하는 질문이 동일함을 Mock으로 확인함. 긴 지침을 숨겨 별도의 사용자 질문으로 보내지 않음. 검증된 `outing_at`, 서버 캐시 Context 및 과거 관측/오늘 예보 구분은 기존대로 유지함.
+
+### 제한된 강조
+
+- 항목 제목·핵심 수치는 `**내용**`로 굵게 표시함.
+- 실제 챙기도록 권하는 옷/물품만 GPT가 `***내용***`으로 표시하면 청록색 볼드로 렌더링함. 색상은 최대 4개로 제한함.
+- 고정 물품명 사전이나 숫자 탐색으로 자동 색칠하지 않음. 같은 줄에 필요하지 않음·불필요·챙기지 말라는 명백한 표현이 있으면 세 겹 강조도 보수적으로 일반 텍스트로 표시함. 혼합된 긍정/부정 문장에서는 일부 긍정 물품도 색상이 생략될 수 있음.
+- GPT 지침에 서식 때문에 준비물을 추가하거나 추천을 미리 정하지 말 것을 명시함. 실제 GPT의 서식 준수와 추천 품질은 이번 Mock 검증만으로 보장하지 않음.
+- `frontend/emphasis.js`는 텍스트 노드와 `strong`만 생성함. 모델 출력에 `innerHTML`을 사용하지 않으며 HTML·링크·기타 Markdown을 실행/해석하지 않음. 사용자 말풍선은 모든 서식을 일반 텍스트로 표시함.
+- 저장된 이전 assistant 답변에도 같은 렌더러를 적용함. 일반 텍스트·지원하지 않는/미완성 서식은 정상 표시하며 서버 저장 문자열은 변환하지 않음.
+- 승인된 색상 유지. 청록 물품 강조와 제목/수치는 기존 assistant 배경에서 일반 텍스트 대비 기준 4.5:1 이상임.
+
+최종 전체 회귀: **Python 오프라인 136 PASS / 0 FAIL, JavaScript 단위 23 PASS / 0 FAIL, Playwright Mock 47 PASS / 0 FAIL**, 모두 종료 코드 0. XSS·임의 HTML·일반 텍스트·제목/수치·물품/부정 표현·이전 대화·질문 전송/저장 일치·360px/390px 긴 답변과 스크롤/포커스를 포함함. 기존 PNG의 SHA256도 동일함.
+
+새 최종 캡처는 `frontend/test-results/final-welcome-390.png`, `final-weather-360.png`, `final-ai-390.png`, `final-desktop.png`. 같은 폴더의 `bree-final-ui-4screens.zip`으로 묶음. 캡처·ZIP은 Git에 추가하지 않음.
+
+실제 날씨/GPT/Firestore 추가 호출·쓰기는 없으며 운영 환경변수·병합·배포도 변경하지 않음. 원본 PNG와 `Microsoft/`는 변경하지 않음.

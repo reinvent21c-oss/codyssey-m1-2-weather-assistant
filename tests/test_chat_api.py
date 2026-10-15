@@ -369,7 +369,7 @@ class ChatApiTests(unittest.TestCase):
         service.fetch = Mock(return_value=payload())
         self.client.app.state.weather_service = service
         self.assertEqual(self.client.get("/api/outing-recommendation?time=11:00").json()["status"], "available")
-        response = self.client.post("/api/chat", json={"question": "우산이 필요할까요?", "outing_at": "2026-10-15T11:00:00+09:00"})
+        response = self.client.post("/api/chat", json={"question": "오늘 이 시간에 뭘 챙기면 좋을까?", "outing_at": "2026-10-15T11:00:00+09:00"})
         self.assertEqual(response.status_code, 200)
         service.fetch.assert_called_once()
         prompt = self.model.chat.completions.create.call_args.kwargs["messages"][0]["content"]
@@ -377,6 +377,10 @@ class ChatApiTests(unittest.TestCase):
         self.assertIn('"precipitation_probability": 70', prompt)
         self.assertIn("검증된 통계 요약", prompt)
         self.assertIn("과거 통계와 혼합하지", prompt)
+        sent = self.model.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+        stored = self.store[response.json()["conversation_id"]]["messages"][0]["content"]
+        self.assertEqual(sent, "오늘 이 시간에 뭘 챙기면 좋을까?")
+        self.assertEqual(stored, sent)
 
     def test_missing_or_wrong_day_weather_never_fetches_or_calls_gpt(self):
         from tests.test_weather import NOW
@@ -432,6 +436,12 @@ class ChatApiTests(unittest.TestCase):
         self.firebase.assert_not_called()
         self.assertEqual(self.store, {})
         self.assertEqual(len(self.client.app.state.chat_limiter.attempts), 0)
+
+    def test_emphasis_instructions_preserve_verified_weather_rules(self):
+        self.assertEqual(self.ask().status_code, 200)
+        prompt = self.model.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        for phrase in ("핵심 수치에 **볼드**", "실제로 챙기도록 권하는", "최대 4개", "필요하지 않음", "서식을 위해 준비물을 추가", "과거 관측치를 실시간 날씨나 미래 예보로 표현하지"):
+            self.assertIn(phrase, prompt)
 
 
 if __name__ == "__main__":
