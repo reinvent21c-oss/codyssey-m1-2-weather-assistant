@@ -5,6 +5,16 @@ const $ = id => document.getElementById(id);
 const state = { conversationId: null, messages: [], records: [], chatBusy: false, historyBusy: false, dataBusy: false, dataLoading: false, editDate: null };
 let api;
 let evaluationCode = ""; // Memory only; never persist, log, or place in a URL.
+let isAdmin = false;
+function applyRole(role) {
+  isAdmin = role === "admin";
+  document.body.dataset.role = isAdmin ? "admin" : "evaluator";
+  for (const id of ["history-panel", "mobile-history", "new-conversation", "history-new-conversation"]) $(id).hidden = !isAdmin;
+  document.querySelector(".data-editor").hidden = !isAdmin;
+  $("evaluation-notice").hidden = isAdmin;
+  $("reenter-code").textContent = `${isAdmin ? "관리자" : "평가자"} · 코드 재입력`;
+  renderMessages();
+}
 function element(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -48,10 +58,11 @@ function renderMessages(pending) {
     if (message.role === "assistant") bubble.append(breeImage("bree-avatar", ""));
     bubble.append(element("span", message.role === "user" ? "나" : "브리", "message-label"), element("span", message.content)); target.append(bubble);
   }
-  $("conversation-state").textContent = state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";
+  $("conversation-state").textContent = !isAdmin ? "매 질문은 별도 저장돼요. 개인정보를 입력하지 마세요." : state.conversationId ? "저장된 대화를 이어가고 있어요." : "새 질문을 보내면 대화가 저장됩니다.";
   target.scrollTop = messages.length ? target.scrollHeight : 0;
 }
 async function loadHistory() {
+  if (!isAdmin) return;
   status("history-status", "대화 목록을 불러오는 중…");
   try {
     const conversations = await api.conversations();
@@ -75,6 +86,7 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? "날짜 정보 없음" : new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" }).format(date);
 }
 async function openConversation(id) {
+  if (!isAdmin) return;
   if (state.chatBusy || state.historyBusy) return;
   state.historyBusy = true; historyControls(); status("chat-status", "대화 내용을 불러오는 중…");
   try {
@@ -86,6 +98,7 @@ async function openConversation(id) {
   finally { state.historyBusy = false; historyControls(); }
 }
 async function deleteConversation(id) {
+  if (!isAdmin) return;
   if (state.chatBusy || state.historyBusy || !window.confirm("이 대화를 삭제할까요? 삭제한 메시지는 되돌릴 수 없습니다.")) return;
   state.historyBusy = true; historyControls(); status("history-status", "대화를 삭제하는 중…");
   try {
@@ -96,6 +109,7 @@ async function deleteConversation(id) {
   finally { state.historyBusy = false; historyControls(); }
 }
 async function newConversation() {
+  if (!isAdmin) return;
   if (state.chatBusy || state.historyBusy) return;
   state.historyBusy = true; historyControls(); status("chat-status", "새 대화를 만드는 중…");
   try { const result = await api.createConversation(); state.conversationId = result.id; state.messages = []; $("question").value = ""; showPanel("chat"); renderMessages(); status("chat-status", "새 대화를 시작했어요."); await loadHistory(); }
@@ -109,12 +123,13 @@ async function sendQuestion(event) {
   if (!question || [...question].length > 2000) { status("chat-status", "질문을 1~2,000자로 입력해 주세요.", true); return; }
   state.chatBusy = true; historyControls(); $("send").textContent = "전송 중…"; renderMessages(question); status("chat-status", "AI 답변을 기다리는 중…");
   try {
-    const result = await api.chat(question, state.conversationId);
+    const result = await api.chat(question, isAdmin ? state.conversationId : null);
     if (typeof result.conversation_id !== "string" || typeof result.response !== "string" || !result.response.trim()) throw new Error();
-    state.conversationId = result.conversation_id;
-    state.messages.push({ role: "user", content: question }, { role: "assistant", content: result.response });
+    state.conversationId = isAdmin ? result.conversation_id : null;
+    const pair = [{ role: "user", content: question }, { role: "assistant", content: result.response }];
+    state.messages = isAdmin ? [...state.messages, ...pair] : pair;
     $("question").value = ""; renderMessages(); status("chat-status", "답변과 질문이 저장되었어요."); await loadHistory();
-  } catch (error) { renderMessages(); status("chat-status", errorMessage(error, "chat") + " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요. 질문은 입력창에 남겨 두었습니다.", true); }
+  } catch (error) { renderMessages(); status("chat-status", errorMessage(error, "chat") + (isAdmin ? " 저장 여부가 확실하지 않으면 이전 대화 목록을 새로고침해 확인한 뒤 다시 보내세요." : " 저장 여부가 불확실하면 관리자에게 확인하고 다시 보내세요.") + " 질문은 입력창에 남겨 두었습니다.", true); }
   finally { state.chatBusy = false; historyControls(); $("send").textContent = "브리에게 보내기"; $("question").focus(); }
 }
 function temperature(value) { return typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}°C` : "—"; }
@@ -147,7 +162,7 @@ async function loadData() {
 function renderData() {
   renderTemperatureChart($("temperature-chart"), state.records);
   const target = $("data-list"); target.replaceChildren();
-  if (!state.records.length) empty(target, "기온 데이터가 없어요", "관측 날짜와 기온을 입력해 새 데이터를 추가할 수 있어요.");
+  if (!state.records.length) empty(target, "기온 데이터가 없어요", isAdmin ? "관측 날짜와 기온을 입력해 새 데이터를 추가할 수 있어요." : "관리자에게 자료 등록을 요청해 주세요.");
   const dateFilter = $("data-date-filter").value;
   const visible = state.records.filter(record => !dateFilter || record.date === dateFilter);
   if (state.records.length && !visible.length) empty(target, "이 날짜의 기록이 없어요", "전체 날짜 보기를 누르면 다른 관측 기록을 확인할 수 있어요.");
@@ -155,13 +170,14 @@ function renderData() {
     const row = element("li", undefined, "data-row"); const top = element("div", undefined, "record-top"); top.append(element("span", record.date), element("span", temperature(record.value))); const actions = element("div", undefined, "record-actions");
     const edit = element("button", "수정", "button secondary"); edit.type = "button"; edit.setAttribute("aria-label", `${record.date} 데이터 수정`); edit.addEventListener("click", () => editData(record));
     const remove = element("button", "삭제", "button danger"); remove.type = "button"; remove.setAttribute("aria-label", `${record.date} 데이터 삭제`); remove.addEventListener("click", () => deleteData(record.date));
-    actions.append(edit, remove); row.append(top, element("p", record.memo, "record-memo"), actions); target.append(row);
+    actions.append(edit, remove); row.append(top, element("p", record.memo, "record-memo")); if (isAdmin) row.append(actions); target.append(row);
   }
   dataControls();
 }
 function editData(record) { if (state.dataBusy) return; state.editDate = record.date; $("record-date").value = record.date; $("record-date").disabled = true; $("record-value").value = record.value; $("record-memo").value = record.memo; $("data-form-heading").textContent = "데이터 수정 · 날짜는 변경할 수 없어요"; $("save-data").textContent = "수정 저장"; $("cancel-edit").hidden = false; $("record-value").focus(); }
 function resetDataForm() { state.editDate = null; $("data-form").reset(); $("record-date").disabled = false; $("data-form-heading").textContent = "새 데이터 추가"; $("save-data").textContent = "추가하기"; $("cancel-edit").hidden = true; }
 async function saveData(event) {
+  if (!isAdmin) { event.preventDefault(); return; }
   event.preventDefault(); if (state.dataBusy || state.dataLoading) return;
   const date = $("record-date").value; const value = $("record-value").value; const memo = $("record-memo").value;
   if (!validRecord(date, value, memo)) { status("data-status", "유효한 날짜와 유한한 숫자 기온을 입력해 주세요.", true); return; }
@@ -174,6 +190,7 @@ async function saveData(event) {
   finally { state.dataBusy = false; dataControls(); }
 }
 async function deleteData(date) {
+  if (!isAdmin) return;
   if (state.dataBusy || state.dataLoading || !window.confirm(`${date} 기온 데이터를 삭제할까요? 되돌릴 수 없습니다.`)) return;
   state.dataBusy = true; dataControls(); status("data-status", "삭제하는 중…");
   try { await api.deleteData(date); if (state.editDate === date) resetDataForm(); const [loaded] = await Promise.all([loadData(), loadSummary()]); if (loaded) status("data-status", "데이터를 삭제했어요."); }
@@ -181,6 +198,7 @@ async function deleteData(date) {
   finally { state.dataBusy = false; dataControls(); }
 }
 function showPanel(name) {
+  if (name === "history" && !isAdmin) return;
   $("main").dataset.view = name;
   document.body.dataset.view = name;
   for (const panel of ["chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); }
@@ -206,7 +224,8 @@ try {
     status("access-status", "접근 코드를 확인하는 중… 초기 서버 구동에는 시간이 걸릴 수 있어요.");
     try {
       const result = await api.access();
-      if (result.authenticated !== true) throw new Error();
+      if (result.authenticated !== true || !["admin", "evaluator"].includes(result.role)) throw new Error();
+      applyRole(result.role);
       $("access-panel").hidden = true; $("main").hidden = false; $("mobile-nav").hidden = false; $("reenter-code").hidden = false;
       showPanel("chat");
       status("access-status");

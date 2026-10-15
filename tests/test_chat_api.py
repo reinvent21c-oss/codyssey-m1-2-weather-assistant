@@ -20,7 +20,7 @@ from backend.main import create_app
 
 class ChatApiTests(unittest.TestCase):
     def setUp(self):
-        self.enterContext(patch.dict(os.environ, {"OPENAI_API_KEY": "TEST_ONLY_NOT_A_KEY", "ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
+        self.enterContext(patch.dict(os.environ, {"OPENAI_API_KEY": "TEST_ONLY_NOT_A_KEY", "ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATOR", "ADMIN_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
         self.enterContext(patch("backend.main.load_dotenv"))
         self.store = {}
         self.data = {
@@ -115,6 +115,20 @@ class ChatApiTests(unittest.TestCase):
         self.assertEqual(sent[1:3], history)
         self.assertEqual(sent[-1], {"role": "user", "content": "추가 질문"})
         self.references[document_id].get.assert_any_call(transaction=self.tx)
+
+    def test_evaluator_questions_create_independent_pairs_without_changing_data(self):
+        existing = self.seed([{"role": "user", "content": "old"}, {"role": "assistant", "content": "old reply"}])
+        before_data = copy.deepcopy(self.data)
+        before_existing = copy.deepcopy(self.store[existing])
+        responses = [self.client.post("/api/chat", headers={"X-Evaluation-Code": "TEST_ONLY_EVALUATOR"}, json={"question": question}) for question in ("first", "second")]
+        self.assertEqual([response.status_code for response in responses], [200, 200])
+        ids = [response.json()["conversation_id"] for response in responses]
+        self.assertEqual(len(set(ids)), 2)
+        self.assertNotIn(existing, ids)
+        for document_id in ids:
+            self.assertEqual([message["role"] for message in self.store[document_id]["messages"]], ["user", "assistant"])
+        self.assertEqual(self.data, before_data)
+        self.assertEqual(self.store[existing], before_existing)
 
     def test_empty_conversation_creation(self):
         response = self.client.post("/api/conversations")

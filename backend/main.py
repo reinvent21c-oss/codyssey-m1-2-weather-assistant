@@ -15,7 +15,8 @@ from backend.chat_routes import router as chat_router
 from backend.conversation_service import ConversationLimitReached, ConversationNotFound
 from backend.gpt_service import ModelTimedOut, ModelUnavailable
 from backend.services import DataNotFound, DuplicateData, StorageUnavailable
-from backend.security import require_evaluation_code
+from backend.security import Role, require_evaluation_code
+from backend.rate_limit import ChatRateLimiter
 
 
 def allowed_origins():
@@ -39,6 +40,7 @@ def allowed_origins():
 def create_app():
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
     app = FastAPI(title="오늘 뭐 챙기지? — 관측 기온 데이터 API")
+    app.state.chat_limiter = ChatRateLimiter.from_environment()
     app.add_middleware(
         CORSMiddleware, allow_origins=allowed_origins(), allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Evaluation-Code"],
@@ -48,9 +50,9 @@ def create_app():
     app.include_router(chat_router, dependencies=protection)
 
     @app.get("/api/access", dependencies=protection, tags=["access"])
-    def check_access():
+    def check_access(role: Role):
         # Verify the code without querying Firestore or consuming model tokens.
-        return {"authenticated": True}
+        return {"authenticated": True, "role": role}
 
     @app.exception_handler(ConversationNotFound)
     async def conversation_missing(request: Request, exc: ConversationNotFound):
