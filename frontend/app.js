@@ -123,7 +123,7 @@ async function sendQuestion(event) {
   if (!question || [...question].length > 2000) { status("chat-status", "질문을 1~2,000자로 입력해 주세요.", true); return; }
   state.chatBusy = true; historyControls(); $("send").textContent = "전송 중…"; renderMessages(question); status("chat-status", "AI 답변을 기다리는 중…");
   try {
-    const result = await api.chat(question, isAdmin ? state.conversationId : null);
+    const result = await api.chat(question, isAdmin ? state.conversationId : null, verifiedOutingAt);
     if (typeof result.conversation_id !== "string" || typeof result.response !== "string" || !result.response.trim()) throw new Error();
     state.conversationId = isAdmin ? result.conversation_id : null;
     const pair = [{ role: "user", content: question }, { role: "assistant", content: result.response }];
@@ -201,8 +201,8 @@ function showPanel(name) {
   if (name === "history" && !isAdmin) return;
   $("main").dataset.view = name;
   document.body.dataset.view = name;
-  for (const panel of ["chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); }
-  for (const view of ["chat", "history", "data"]) { if (view === name) $(`mobile-${view}`).setAttribute("aria-current", "page"); else $(`mobile-${view}`).removeAttribute("aria-current"); }
+  for (const panel of ["outing", "chat", "data"]) { $(`${panel}-panel`).hidden = panel !== name; $(`${panel}-tab`).classList.toggle("active", panel === name); if (panel === name) $(`${panel}-tab`).setAttribute("aria-current", "page"); else $(`${panel}-tab`).removeAttribute("aria-current"); }
+  for (const view of ["outing", "chat", "history", "data"]) { if (view === name) $(`mobile-${view}`).setAttribute("aria-current", "page"); else $(`mobile-${view}`).removeAttribute("aria-current"); }
   updateChatViewport();
 }
 function updateChatViewport() {
@@ -212,8 +212,63 @@ function updateChatViewport() {
   const height = (window.visualViewport?.height || innerHeight) - $("chat-panel").getBoundingClientRect().top - navigationHeight - 12;
   $("chat-panel").style.setProperty("--chat-height", `${Math.max(160, height)}px`);
 }
+let verifiedOutingAt = null;
+let outingBusy = false;
+let outingGeneration = 0;
+function clearOuting() {
+  verifiedOutingAt = null;
+  outingGeneration += 1;
+  $("outing-result").replaceChildren();
+  status("outing-status");
+}
+function renderOuting(result) {
+  if (result.status !== "available" || !result.weather) throw new Error("unavailable");
+  const limits = { temperature_2m: [-90, 60], precipitation_probability: [0, 100], precipitation: [0, 1000], wind_speed_10m: [0, 150] };
+  if (Object.entries(limits).some(([key, [low, high]]) => typeof result.weather[key] !== "number" || !Number.isFinite(result.weather[key]) || result.weather[key] < low || result.weather[key] > high)) throw new Error("unavailable");
+  if ([result.requested_at, result.forecast_at, result.fetched_at].some(value => typeof value !== "string" || !Number.isFinite(new Date(value).getTime()))) throw new Error("unavailable");
+  const target = $("outing-result");
+  target.replaceChildren();
+  const source = element("p", undefined, "muted small");
+  const link = element("a", "날씨 데이터 제공: Open-Meteo"); link.href = "https://open-meteo.com/";
+  const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
+  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(" · 예보를 규칙 기반 추천으로 가공했어요."));
+  target.append(source, element("p", `선택 시각: ${formatTime(result.requested_at)} · 예보 시각: ${formatTime(result.forecast_at)} (Asia/Seoul)`));
+  if (result.offset_minutes) target.append(element("p", `선택 시각보다 ${result.offset_minutes}분 뒤의 다음 정각 예보를 사용했어요.`, "muted"));
+  target.append(element("p", `서버 조회 시각: ${formatTime(result.fetched_at)} · 제공자의 모델 발표 시각은 확인되지 않았어요.`, "muted small"));
+  const weather = result.weather;
+  const measurement = (value, unit) => typeof value === "number" && Number.isFinite(value) ? `${value}${unit}` : "확인 불가";
+  target.append(element("p", `예보 기온 ${measurement(weather.temperature_2m, "°C")} · 강수확률 ${measurement(weather.precipitation_probability, "%")} · 예보 강수량 ${measurement(weather.precipitation, " mm")} · 풍속 ${measurement(weather.wind_speed_10m, " m/s")}`));
+  target.append(element("p", "강수확률과 강수량은 예보 시각 이전 1시간 구간의 예측값이에요. 실제 측정 강수량이 아니며, 전체 외출 시간의 날씨를 보장하지 않아요.", "muted small"));
+  for (const [heading, content] of [["옷차림", result.clothing], ["우산", result.umbrella], ["준비물", result.items.join(" · ")], ["추천 이유", result.reasons.join(" ")]]) {
+    target.append(element("h2", heading), element("p", content));
+  }
+}
+async function loadOuting(event) {
+  event.preventDefault();
+  if (outingBusy) return;
+  clearOuting();
+  const generation = outingGeneration;
+  outingBusy = true; $("outing-submit").disabled = true;
+  status("outing-status", "서울 시간대별 예보를 확인하는 중…");
+  try {
+    const result = await api.outing($("outing-time").value);
+    if (generation !== outingGeneration) return;
+    if (result.status !== "available") {
+      status("outing-status", typeof result.message === "string" ? result.message : "현재 날씨 정보 확인 불가", true);
+      return;
+    }
+    renderOuting(result); verifiedOutingAt = result.requested_at; status("outing-status", "확인된 예보로 준비했어요. 외출 직전에 다시 확인해 주세요.");
+  } catch (error) {
+    if (generation !== outingGeneration) return;
+    $("outing-result").replaceChildren();
+    const auth = [401, 403].includes(error.status) ? errorMessage(error) : "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요.";
+    status("outing-status", auth, true);
+  } finally { outingBusy = false; $("outing-submit").disabled = false; updateChatViewport(); }
+}
 try {
   api = createApi(window.APP_CONFIG.API_BASE_URL, globalThis.fetch.bind(globalThis), () => evaluationCode);
+  $("outing-form").addEventListener("submit", loadOuting);
+  $("outing-time").addEventListener("input", clearOuting);
   $("reenter-code").addEventListener("click", () => window.location.reload());
   $("access-form").addEventListener("submit", async event => {
     event.preventDefault();
@@ -227,15 +282,17 @@ try {
       if (result.authenticated !== true || !["admin", "evaluator"].includes(result.role)) throw new Error();
       applyRole(result.role);
       $("access-panel").hidden = true; $("main").hidden = false; $("mobile-nav").hidden = false; $("reenter-code").hidden = false;
-      showPanel("chat");
+      showPanel("outing");
       status("access-status");
-      await Promise.all([loadSummary(), loadHistory()]); $("question").focus();
+      await Promise.all([loadSummary(), loadHistory()]); $("outing-time").focus();
     } catch (error) {
       evaluationCode = "";
       status("access-status", errorMessage(error) + " 서버가 잠들어 있었다면 잠시 기다린 뒤 다시 확인해 주세요.", true);
       $("access-code").focus();
     } finally { $("access-submit").disabled = false; }
   });
+  $("outing-tab").addEventListener("click", () => showPanel("outing"));
+  $("mobile-outing").addEventListener("click", () => showPanel("outing"));
   $("chat-tab").addEventListener("click", () => showPanel("chat"));
   $("data-tab").addEventListener("click", () => { showPanel("data"); if (!state.dataBusy) loadData(); });
   $("mobile-chat").addEventListener("click", () => showPanel("chat"));

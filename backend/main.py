@@ -17,6 +17,7 @@ from backend.gpt_service import ModelTimedOut, ModelUnavailable
 from backend.services import DataNotFound, DuplicateData, StorageUnavailable
 from backend.security import Role, require_evaluation_code
 from backend.rate_limit import ChatRateLimiter
+from backend.weather import WeatherService, router as weather_router
 
 
 def allowed_origins():
@@ -41,6 +42,7 @@ def create_app():
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
     app = FastAPI(title="오늘 뭐 챙기지? — 관측 기온 데이터 API")
     app.state.chat_limiter = ChatRateLimiter.from_environment()
+    app.state.weather_service = WeatherService()
     app.add_middleware(
         CORSMiddleware, allow_origins=allowed_origins(), allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Evaluation-Code"],
@@ -48,6 +50,7 @@ def create_app():
     protection = [Depends(require_evaluation_code)]
     app.include_router(router, dependencies=protection)
     app.include_router(chat_router, dependencies=protection)
+    app.include_router(weather_router, dependencies=protection)
 
     @app.get("/api/access", dependencies=protection, tags=["access"])
     def check_access(role: Role):

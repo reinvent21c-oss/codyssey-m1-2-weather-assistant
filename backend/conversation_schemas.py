@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: Annotated[StrictStr, Field(min_length=1, max_length=MAX_QUESTION_CHARS)]
     conversation_id: UUID4 | None = None
+    outing_at: AwareDatetime | None = None
 
     @field_validator("question", mode="before")
     @classmethod

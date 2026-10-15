@@ -14,6 +14,7 @@ from backend.firebase import get_firestore_client
 from backend.gpt_service import GPTService
 from backend.services import DataService, StorageUnavailable
 from backend.security import Role, require_admin
+from backend.weather import SEOUL
 
 
 router = APIRouter(prefix="/api", tags=["conversations"])
@@ -59,7 +60,16 @@ def chat(request: Annotated[ChatRequest, Depends(authorize_chat)], http_request:
     check_capacity(history, request.question, "x" * MAX_REPLY_CHARS)
     summary = data.summary()
     http_request.app.state.chat_limiter.acquire()
-    answer = model.answer(request.question, history, summary)
+    if request.outing_at is None:
+        answer = model.answer(request.question, history, summary)
+    else:
+        weather = http_request.app.state.weather_service
+        selected = request.outing_at.astimezone(SEOUL)
+        # Chat reads the short-lived server cache only; it cannot trigger weather I/O.
+        context = {"status": "unavailable"}
+        if selected.date() == weather.now().astimezone(SEOUL).date() and selected.second == 0 and selected.microsecond == 0:
+            context = weather.recommend(selected.strftime("%H:%M"), cached_only=True)
+        answer = model.answer(request.question, history, summary, weather_context=context)
     if request.conversation_id:
         conversations.append_pair(request.conversation_id, request.question, answer)
         document_id = request.conversation_id

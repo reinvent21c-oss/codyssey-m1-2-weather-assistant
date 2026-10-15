@@ -178,3 +178,18 @@ body[data-view=chat] footer { display: none; }
   .bree-art-slot { width: 150px; height: 100px; }
   .suggestions { margin-top: 10px; }
 }
+
+.outing-panel { padding: 24px; margin-bottom: 20px; background: linear-gradient(120deg, #f2fbff, #effcf6); }
+.outing-panel h1 { font-size: 1.6rem; }
+.outing-panel h2 { font-size: 1.05rem; margin: 18px 0 4px; color: var(--green); }
+.outing-panel p { overflow-wrap: anywhere; }
+.outing-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 18px; }
+.outing-form > div { flex: 1; min-width: 160px; }
+#outing-result { border-top: 1px solid var(--line); }
+#outing-result:empty { border: 0; }
+@media (max-width: 760px) {
+  .outing-panel { padding: 18px; }
+  .outing-form > div, .outing-form button { width: 100%; }
+  .mobile-nav { display: flex; }
+  .mobile-nav button { flex: 1; }
+}

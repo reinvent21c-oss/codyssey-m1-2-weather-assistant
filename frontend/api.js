@@ -44,7 +44,8 @@ export function createApi(baseUrl, fetchImpl = globalThis.fetch.bind(globalThis)
   const id = value => encodeURIComponent(value);
   return {
     access: () => request("/api/access"),
-    chat: (question, conversationId) => request("/api/chat", "POST", { question, ...(conversationId ? { conversation_id: conversationId } : {}) }),
+    outing: time => request(`/api/outing-recommendation?time=${id(time)}`),
+    chat: (question, conversationId, outingAt) => request("/api/chat", "POST", { question, ...(conversationId ? { conversation_id: conversationId } : {}), ...(outingAt ? { outing_at: outingAt } : {}) }),
     createConversation: () => request("/api/conversations", "POST"),
     conversations: () => request("/api/conversations"),
     conversation: value => request(`/api/conversations/${id(value)}`),

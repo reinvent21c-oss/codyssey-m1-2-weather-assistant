@@ -27,7 +27,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
+async function fixture({ initialView = "chat", weatherUnavailable = false, mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
   const pageOrigin = hosted ? "https://bree-test.vercel.app" : origin;
   const apiOrigin = hosted ? "https://codyssey-m1-2-weather-assistant.onrender.com" : "http://127.0.0.1:8000";
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
@@ -57,6 +57,12 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
     }
     let result; let status = 200;
     if (path === "/api/access") result = { authenticated: true, role };
+    else if (path === "/api/outing-recommendation") result = weatherUnavailable ? { status: "unavailable", message: "현재 날씨 정보 확인 불가" } : {
+      status: "available", location: "서울", timezone: "Asia/Seoul", requested_at: "2026-10-15T10:30:00+09:00",
+      forecast_at: "2026-10-15T11:00:00+09:00", offset_minutes: 30, fetched_at: "2026-10-15T10:00:00+09:00",
+      weather: { temperature_2m: 18, precipitation_probability: 70, precipitation: 1.2, wind_speed_10m: 4 },
+      clothing: "가벼운 겉옷", umbrella: "우산을 챙겨요", items: ["방수 가방"], reasons: ["강수확률 70%와 예보 강수량 1.2 mm를 참고했어요."]
+    };
     else if (path === "/api/data/summary") {
       const ordered = [...data].sort((a, b) => a.date.localeCompare(b.date)); const values = data.map(record => record.value);
       result = { start_date: ordered[0]?.date ?? null, end_date: ordered.at(-1)?.date ?? null, count: data.length, mean_value: data.length ? values.reduce((sum, value) => sum + value, 0) / data.length : null, min_value: data.length ? Math.min(...values) : null, max_value: data.length ? Math.max(...values) : null, trend: { status: "insufficient_data", threshold_celsius: 0.5, latest_week_mean: null, previous_week_mean: null } };
@@ -91,6 +97,7 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
   if (authenticate) {
     await page.locator("#access-code").fill(TEST_CODE); await page.locator("#access-submit").click();
     await page.waitForSelector("#main:not([hidden])");
+    if (initialView === "chat") await page.locator(mobile ? "#mobile-chat" : "#chat-tab").click();
     await page.waitForFunction(() => !document.getElementById("history-status").textContent.includes("불러오는"));
   }
   return { page, context, errors, calls };
@@ -199,6 +206,7 @@ test("access gate hides features until verified and forgets code on reload", asy
     assert.equal(await page.locator("#access-code").inputValue(), "");
     await page.locator("#access-code").fill(TEST_CODE); await page.locator("#access-submit").click();
     await page.waitForSelector("#main:not([hidden])");
+    await page.locator(page.viewportSize().width <= 760 ? "#mobile-chat" : "#chat-tab").click();
     assert(!(await page.content()).includes(TEST_CODE));
     assert(!page.url().includes(TEST_CODE));
     assert.deepEqual(await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length, cookies: document.cookie })), { local: 0, session: 0, cookies: "" });
@@ -352,6 +360,7 @@ test("Bree greeting and suggestions are UI only; history switching keeps server 
     await page.locator(".conversation-open").click();
     await page.waitForFunction(() => document.querySelectorAll(".message").length === 2);
     assert.equal(await page.locator(".bree-welcome").count(), 0);
+    await page.waitForFunction(() => { const image = document.querySelector(".bree-avatar"); return image?.complete && image.naturalWidth > 0; });
     assert(await page.locator(".bree-avatar").first().evaluate(image => image.complete && image.naturalWidth > 0));
     await page.locator("#new-conversation").click();
     await page.waitForSelector(".bree-welcome");
@@ -423,6 +432,7 @@ test("Bree access, composer and data cards remain usable at desktop and 360px", 
       await page.locator("#access-code").fill(TEST_CODE);
       await page.locator("#access-submit").click();
       await page.waitForSelector("#main:not([hidden])");
+    await page.locator(page.viewportSize().width <= 760 ? "#mobile-chat" : "#chat-tab").click();
       const field = await page.locator("#question").boundingBox();
       const send = await page.locator("#send").boundingBox();
       assert(field.y >= 0 && field.y + field.height <= page.viewportSize().height);
@@ -438,4 +448,110 @@ test("Bree access, composer and data cards remain usable at desktop and 360px", 
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   }
+});
+
+for (const mobile of [false, true]) {
+  test(`outing: ${mobile ? "mobile" : "desktop"} authenticated Seoul forecast and accessible order`, async () => {
+    const { page, context, calls, errors } = await fixture({ mobile, initialView: "outing" });
+    try {
+      assert.match(await page.locator("#outing-panel").innerText(), /서울/);
+      await page.locator("#outing-time").fill("10:30");
+      await page.locator("#outing-submit").click();
+      await page.waitForFunction(() => document.getElementById("outing-result").textContent.includes("가벼운 겉옷"));
+      const text = await page.locator("#outing-result").innerText();
+      assert.match(text, /30분/); assert.match(text, /70%/); assert.match(text, /1.2 mm/);
+      assert(text.indexOf("예보 시각") < text.indexOf("옷차림"));
+      assert(text.indexOf("옷차림") < text.indexOf("우산"));
+      assert(text.indexOf("준비물") < text.indexOf("추천 이유"));
+      assert.equal(await page.locator('#outing-result a[href="https://open-meteo.com/"]').count(), 1);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      assert.equal(calls.filter(call => call.path === "/api/outing-recommendation").length, 1);
+      await page.screenshot({ path: `${root}test-results/outing-${mobile ? "mobile" : "desktop"}.png`, fullPage: true });
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+}
+test("outing: unavailable lookup renders no invented recommendation", async () => {
+  const { page, context } = await fixture({ mobile: true, weatherUnavailable: true, initialView: "outing" });
+  try {
+    await page.locator("#outing-time").fill("10:30"); await page.locator("#outing-submit").click();
+    await page.waitForFunction(() => document.getElementById("outing-status").textContent.includes("확인 불가"));
+    assert.equal(await page.locator("#outing-result").innerText(), "");
+    await page.locator("#outing-time").fill("11:30");
+    assert.equal(await page.locator("#outing-result").innerText(), "");
+  } finally { await context.close(); }
+});
+
+test("외출 준비: 확인된 시각만 채팅에 전달하고 시각 변경 시 오래된 결과를 지워요", async () => {
+  const { page, context, calls, errors } = await fixture({ mobile: true, initialView: "outing" });
+  try {
+    await page.locator("#outing-time").fill("10:30"); await page.locator("#outing-submit").click();
+    await page.waitForFunction(() => document.getElementById("outing-result").textContent.includes("옷차림"));
+    await openView(page, "chat");
+    await page.locator("#question").fill("이 외출 시각에 우산이 필요할까요?"); await page.locator("#send").click();
+    await page.waitForFunction(() => !document.getElementById("send").disabled);
+    assert.equal(calls.find(call => call.path === "/api/chat").body.outing_at, "2026-10-15T10:30:00+09:00");
+    await page.locator("#mobile-outing").click();
+    await page.locator("#outing-time").fill("11:30");
+    assert.equal(await page.locator("#outing-result").innerText(), "");
+    await context.route("**/api/outing-recommendation?**", route => route.fulfill({
+      status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": new URL(page.url()).origin },
+      body: JSON.stringify({ status: "unavailable", message: "현재 날씨 정보 확인 불가" })
+    }));
+    await page.locator("#outing-submit").click();
+    await page.waitForFunction(() => document.getElementById("outing-status").textContent.includes("확인 불가"));
+    assert.equal(await page.locator("#outing-result").innerText(), "");
+    await openView(page, "chat"); await page.locator("#question").fill("지금 날씨는요?"); await page.locator("#send").click();
+    await page.waitForFunction(() => !document.getElementById("send").disabled);
+    assert.equal(calls.filter(call => call.path === "/api/chat").at(-1).body.outing_at, undefined);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+for (const responseStatus of [401, 504]) {
+  test(`외출 준비: HTTP ${responseStatus}에서 추천을 추측하지 않고 한국어로 안내해요`, async () => {
+    const { page, context } = await fixture({ mobile: true, initialView: "outing", role: "evaluator" });
+    try {
+      await context.route("**/api/outing-recommendation?**", route => route.fulfill({
+        status: responseStatus, contentType: "application/json", headers: { "Access-Control-Allow-Origin": new URL(page.url()).origin },
+        body: JSON.stringify({ detail: "PRIVATE_SENTINEL" })
+      }));
+      await page.locator("#outing-time").fill("10:30"); await page.locator("#outing-submit").click();
+      await page.waitForFunction(() => !document.getElementById("outing-submit").disabled);
+      assert.match(await page.locator("#outing-status").innerText(), responseStatus === 401 ? /접근 코드/ : /확인 불가/);
+      assert.equal(await page.locator("#outing-result").innerText(), "");
+      assert(!(await page.locator("#outing-status").innerText()).includes("PRIVATE_SENTINEL"));
+    } finally { await context.close(); }
+  });
+}
+test("외출 준비: 강수 예측이 0이어도 맑음을 단정하지 않아요", async () => {
+  const { page, context } = await fixture({ initialView: "outing", role: "evaluator", mobile: true });
+  try {
+    await context.route("**/api/outing-recommendation?**", route => route.fulfill({
+      status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": new URL(page.url()).origin },
+      body: JSON.stringify({ status: "available", requested_at: "2026-10-15T10:30:00+09:00", forecast_at: "2026-10-15T11:00:00+09:00", offset_minutes: 30,
+        fetched_at: "2026-10-15T10:00:00+09:00", weather: { temperature_2m: 0, precipitation_probability: 0, precipitation: 0, wind_speed_10m: 0 },
+        clothing: "두꺼운 외투", umbrella: "강수 가능성은 낮아요. 이후 변화를 다시 확인해요.", items: ["목도리"], reasons: ["예보 기온을 참고했어요."] })
+    }));
+    await page.locator("#outing-time").fill("10:30"); await page.locator("#outing-submit").click();
+    await page.waitForFunction(() => document.getElementById("outing-result").textContent.includes("두꺼운 외투"));
+    const text = await page.locator("#outing-result").innerText();
+    assert.match(text, /0°C/); assert.match(text, /0%/); assert.match(text, /0 mm/); assert(!text.includes("맑"));
+    await page.locator("#outing-result h2").last().scrollIntoViewIfNeeded();
+    assert(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight));
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).overflowY === "hidden"), false);
+  } finally { await context.close(); }
+});
+
+test("외출 준비: 잘못된 성공 응답의 결측 필드도 추천으로 표시하지 않아요", async () => {
+  const { page, context } = await fixture({ initialView: "outing", mobile: true });
+  try {
+    await context.route("**/api/outing-recommendation?**", route => route.fulfill({
+      status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": new URL(page.url()).origin },
+      body: JSON.stringify({ status: "available", weather: { temperature_2m: 18, precipitation_probability: null, precipitation: 0, wind_speed_10m: 4 },
+        clothing: "보이면 안 되는 추천", umbrella: "보이면 안 되는 추천", items: [], reasons: [] })
+    }));
+    await page.locator("#outing-time").fill("10:30"); await page.locator("#outing-submit").click();
+    await page.waitForFunction(() => document.getElementById("outing-status").textContent.includes("확인 불가"));
+    assert.equal(await page.locator("#outing-result").innerText(), "");
+  } finally { await context.close(); }
 });

@@ -99,3 +99,24 @@ test("date and finite temperature validation allows zero and negatives", () => {
 test("public API configuration rejects credentials and unsafe schemes", () => {
   for (const url of ["javascript:alert(1)", "https://user:secret@example.com", "https://example.com?key=secret"]) assert.throws(() => createApi(url));
 });
+
+ test("outing recommendation uses authenticated encoded time and never client weather values", async () => {
+  let called;
+  const api = authenticatedApi("https://example.invalid", async (url, options) => {
+    called = { url, options }; return { ok: true, json: async () => ({ status: "unavailable" }) };
+  });
+  await api.outing("10:30");
+  assert.equal(called.url, "https://example.invalid/api/outing-recommendation?time=10%3A30");
+  assert.equal(called.options.headers["X-Evaluation-Code"], TEST_CODE);
+  assert.equal(called.options.method, "GET");
+  assert.equal(called.options.body, undefined);
+});
+
+test("chat forwards only the selected aware timestamp, not weather measurements", async () => {
+  let sent;
+  const api = authenticatedApi("https://example.invalid", async (url, options) => {
+    sent = JSON.parse(options.body); return { ok: true, json: async () => ({}) };
+  });
+  await api.chat("외출 준비", null, "2026-10-15T11:00:00+09:00");
+  assert.deepEqual(sent, { question: "외출 준비", outing_at: "2026-10-15T11:00:00+09:00" });
+});
