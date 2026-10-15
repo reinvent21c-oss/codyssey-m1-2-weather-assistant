@@ -27,7 +27,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true } = {}) {
+async function fixture({ mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin" } = {}) {
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
   const page = await context.newPage(); const errors = []; const calls = [];
   page.on("pageerror", error => errors.push(error.message));
@@ -49,7 +49,7 @@ async function fixture({ mobile = false, empty = false, chatError = 0, dataError
       return;
     }
     let result; let status = 200;
-    if (path === "/api/access") result = { authenticated: true };
+    if (path === "/api/access") result = { authenticated: true, role };
     else if (path === "/api/data/summary") {
       const ordered = [...data].sort((a, b) => a.date.localeCompare(b.date)); const values = data.map(record => record.value);
       result = { start_date: ordered[0]?.date ?? null, end_date: ordered.at(-1)?.date ?? null, count: data.length, mean_value: data.length ? values.reduce((sum, value) => sum + value, 0) / data.length : null, min_value: data.length ? Math.min(...values) : null, max_value: data.length ? Math.max(...values) : null, trend: { status: "insufficient_data", threshold_celsius: 0.5, latest_week_mean: null, previous_week_mean: null } };
@@ -97,6 +97,8 @@ async function openView(page, view) {
 test("desktop: summary, chat loading and duplicate prevention, history and XSS safety", async () => {
   const { page, context, errors, calls } = await fixture();
   try {
+    assert.match(await page.locator("#conversation-state").innerText(), /새 질문/);
+    assert.match(await page.locator("#reenter-code").innerText(), /관리자/);
     assert.match(await page.locator("#summary-content").innerText(), /2건/);
     assert.match(await page.locator("#summary-content").innerText(), /-0.5°C/);
     assert.match(await page.locator("#summary-content").innerText(), /판단 불가/);
@@ -118,6 +120,49 @@ test("desktop: summary, chat loading and duplicate prevention, history and XSS s
     await mkdir(`${root}test-results`, { recursive: true }); await page.screenshot({ path: `${root}test-results/desktop.png`, fullPage: true });
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
+});
+
+test("evaluator desktop/mobile: read-only data, no history calls, every question is new", async () => {
+  for (const mobile of [false, true]) {
+    const { page, context, calls, errors } = await fixture({ role: "evaluator", mobile });
+    try {
+      assert.equal(await page.locator("#history-panel").isVisible(), false);
+      assert.equal(await page.locator("#mobile-history").isVisible(), false);
+      assert.equal(await page.locator("#new-conversation").isVisible(), false);
+      assert.match(await page.locator("#evaluation-notice").innerText(), /관리자.*개인정보/);
+      assert.match(await page.locator("#reenter-code").innerText(), /평가자/);
+      for (const question of ["첫 번째 Mock 질문", "두 번째 독립 Mock 질문"]) {
+        await page.locator("#question").fill(question); await page.locator("#send").click();
+        await page.waitForFunction(() => !document.getElementById("send").disabled);
+        assert.equal(await page.locator(".message").count(), 2);
+      }
+      assert(calls.filter(call => call.path === "/api/chat").every(call => !Object.hasOwn(call.body, "conversation_id")));
+      assert.equal(calls.filter(call => call.path === "/api/chat").length, 2);
+      assert.equal(calls.filter(call => call.path.startsWith("/api/conversations")).length, 0);
+      await openView(page, "data"); await page.waitForSelector(".data-row");
+      assert.equal(await page.locator(".data-editor").isVisible(), false);
+      assert.equal(await page.locator("#data-list button").count(), 0);
+      assert.equal(await page.locator(".chart-point").count(), 2);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      assert.equal(calls.filter(call => call.path.startsWith("/api/data") && call.method !== "GET").length, 0);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }
+});
+
+test("evaluator 403/429: safe guidance, preserves question and never auto-retries", async () => {
+  for (const chatError of [403, 429]) {
+    const { page, context, calls } = await fixture({ role: "evaluator", chatError });
+    try {
+      await page.locator("#question").fill("Mock 제한 확인"); await page.locator("#send").click();
+      await page.waitForFunction(() => document.getElementById("chat-status").classList.contains("error"));
+      assert.match(await page.locator("#chat-status").innerText(), chatError === 403 ? /관리자/ : /요청 한도/);
+      assert(!(await page.locator("#chat-status").innerText()).includes("이전 대화 목록"));
+      assert.equal(await page.locator("#question").inputValue(), "Mock 제한 확인");
+      assert.equal(calls.filter(call => call.path === "/api/chat").length, 1);
+      assert.equal(calls.filter(call => call.path.startsWith("/api/conversations")).length, 0);
+    } finally { await context.close(); }
+  }
 });
 
 test("access gate hides features until verified and forgets code on reload", async () => {

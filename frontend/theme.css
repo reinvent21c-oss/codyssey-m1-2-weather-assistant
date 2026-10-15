@@ -76,6 +76,8 @@ input::placeholder, textarea::placeholder { color: #657e8b; opacity: 1; }
 .access-note { text-align: center; margin-top: 16px; }
 .access-panel .primary { min-height: 48px; }
 .app-layout { gap: 20px; grid-template-columns: 240px minmax(0, 1fr); }
+body[data-role=evaluator] .app-layout,
+body[data-role=evaluator] .data-workspace { grid-template-columns: minmax(0, 1fr); }
 .history-sidebar { background: #f6fcffb8; }
 .history-sidebar h2 { font-size: 1rem; }
 .conversation-item { border-top: 0; padding: 4px 0; }

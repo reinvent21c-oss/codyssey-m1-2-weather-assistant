@@ -38,12 +38,14 @@ test("existing conversation ID is included and IDs are URL encoded", async () =>
 });
 
 test("HTTP errors hide backend detail and give friendly guidance", async () => {
-  for (const status of [404, 409, 422, 502, 503, 504]) {
+  for (const status of [403, 404, 409, 422, 429, 502, 503, 504]) {
     const api = authenticatedApi("http://localhost:8000", async () => ({ ok: false, status, json: () => { throw new Error("PRIVATE_DETAIL"); } }));
     await assert.rejects(api.data(), error => error instanceof ApiError && !errorMessage(error).includes("PRIVATE_DETAIL"));
   }
   assert.match(errorMessage(new ApiError(409, "")), /이미/);
   assert.match(errorMessage(new ApiError(404, ""), "chat"), /대화/);
+  assert.match(errorMessage(new ApiError(403, "")), /관리자/);
+  assert.match(errorMessage(new ApiError(429, "")), /요청 한도/);
 });
 
 test("network and malformed responses are safe errors", async () => {

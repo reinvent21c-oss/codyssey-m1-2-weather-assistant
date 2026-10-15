@@ -13,7 +13,7 @@ from backend.main import create_app
 
 class DataApiTests(unittest.TestCase):
     def setUp(self):
-        self.enterContext(patch.dict(os.environ, {"ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
+        self.enterContext(patch.dict(os.environ, {"ALLOWED_ORIGINS": "", "EVALUATION_ACCESS_CODE": "TEST_ONLY_EVALUATOR", "ADMIN_ACCESS_CODE": "TEST_ONLY_EVALUATION_CODE"}, clear=True))
         self.enterContext(patch("backend.main.load_dotenv"))
         self.documents = {}
         self.firestore = Mock()

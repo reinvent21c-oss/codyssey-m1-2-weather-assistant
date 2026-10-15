@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import UUID4
 
 from backend.conversation_schemas import (
@@ -13,6 +13,7 @@ from backend.conversation_service import ConversationService, check_capacity
 from backend.firebase import get_firestore_client
 from backend.gpt_service import GPTService
 from backend.services import DataService, StorageUnavailable
+from backend.security import Role, require_admin
 
 
 router = APIRouter(prefix="/api", tags=["conversations"])
@@ -45,11 +46,20 @@ Summary = Annotated[DataService, Depends(get_summary_service)]
 Model = Annotated[GPTService, Depends(get_gpt_service)]
 
 
+def authorize_chat(request: ChatRequest, role: Role):
+    if role != "admin" and request.conversation_id is not None:
+        raise HTTPException(status_code=403, detail="Administrator access required.")
+    return request
+
+
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, conversations: Conversations, data: Summary, model: Model):
+def chat(request: Annotated[ChatRequest, Depends(authorize_chat)], http_request: Request,
+         conversations: Conversations, data: Summary, model: Model):
     history = conversations.get(request.conversation_id).messages if request.conversation_id else []
     check_capacity(history, request.question, "x" * MAX_REPLY_CHARS)
-    answer = model.answer(request.question, history, data.summary())
+    summary = data.summary()
+    http_request.app.state.chat_limiter.acquire()
+    answer = model.answer(request.question, history, summary)
     if request.conversation_id:
         conversations.append_pair(request.conversation_id, request.question, answer)
         document_id = request.conversation_id
@@ -61,23 +71,23 @@ def chat(request: ChatRequest, conversations: Conversations, data: Summary, mode
     return ChatResponse(conversation_id=document_id, response=answer)
 
 
-@router.post("/conversations", response_model=ConversationInfo, status_code=201)
+@router.post("/conversations", response_model=ConversationInfo, status_code=201, dependencies=[Depends(require_admin)])
 def create_conversation(conversations: Conversations):
     document = conversations.create()
     return ConversationInfo(id=document.id, created_at=document.created_at, updated_at=document.updated_at, message_count=0)
 
 
-@router.get("/conversations", response_model=list[ConversationInfo])
+@router.get("/conversations", response_model=list[ConversationInfo], dependencies=[Depends(require_admin)])
 def list_conversations(conversations: Conversations):
     return conversations.list_conversations()
 
 
-@router.get("/conversations/{id}", response_model=ConversationDetail)
+@router.get("/conversations/{id}", response_model=ConversationDetail, dependencies=[Depends(require_admin)])
 def get_conversation(id: UUID4, conversations: Conversations):
     return conversations.get(id)
 
 
-@router.delete("/conversations/{id}", response_model=ConversationDeleted)
+@router.delete("/conversations/{id}", response_model=ConversationDeleted, dependencies=[Depends(require_admin)])
 def delete_conversation(id: UUID4, conversations: Conversations):
     conversations.delete(id)
     return ConversationDeleted(id=id, deleted=True)
