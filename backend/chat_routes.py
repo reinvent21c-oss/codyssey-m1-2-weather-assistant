@@ -14,6 +14,7 @@ from backend.firebase import get_firestore_client
 from backend.gpt_service import GPTService
 from backend.services import DataService, StorageUnavailable
 from backend.security import Role, require_admin
+from backend.weather import SEOUL
 
 
 router = APIRouter(prefix="/api", tags=["conversations"])
@@ -58,8 +59,21 @@ def chat(request: Annotated[ChatRequest, Depends(authorize_chat)], http_request:
     history = conversations.get(request.conversation_id).messages if request.conversation_id else []
     check_capacity(history, request.question, "x" * MAX_REPLY_CHARS)
     summary = data.summary()
+    context = None
+    if request.outing_at is not None:
+        weather = http_request.app.state.weather_service
+        selected = request.outing_at.astimezone(SEOUL)
+        if selected.date() != weather.now().astimezone(SEOUL).date() or selected.second != 0 or selected.microsecond != 0:
+            raise HTTPException(status_code=412, detail="Weather context is no longer valid.")
+        context = weather.recommend(selected.strftime("%H:%M"), cached_only=True)
+        if context["status"] != "available" or selected <= weather.now().astimezone(SEOUL):
+            raise HTTPException(status_code=412, detail="Weather context is no longer valid.")
+    # Invalid weather cannot consume GPT quota, invoke the model, or save a pair.
     http_request.app.state.chat_limiter.acquire()
-    answer = model.answer(request.question, history, summary)
+    if context is None:
+        answer = model.answer(request.question, history, summary)
+    else:
+        answer = model.answer(request.question, history, summary, weather_context=context)
     if request.conversation_id:
         conversations.append_pair(request.conversation_id, request.question, answer)
         document_id = request.conversation_id

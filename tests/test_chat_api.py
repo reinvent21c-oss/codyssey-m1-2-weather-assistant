@@ -358,9 +358,90 @@ class ChatApiTests(unittest.TestCase):
                     response = client.get("/docs")
                     self.assertEqual(response.status_code, 200)
                     paths = client.get("/openapi.json").json()["paths"]
-                    self.assertEqual(sum(len(operations) for operations in paths.values()), 11)
+                    self.assertEqual(sum(len(operations) for operations in paths.values()), 12)
                 sdk.assert_not_called()
                 self.firebase.assert_not_called()
+
+    def test_verified_weather_context_uses_only_server_cache(self):
+        from tests.test_weather import NOW, payload
+        from backend.weather import WeatherService
+        service = WeatherService(enabled=True, now=lambda: NOW)
+        service.fetch = Mock(return_value=payload())
+        self.client.app.state.weather_service = service
+        self.assertEqual(self.client.get("/api/outing-recommendation?time=11:00").json()["status"], "available")
+        response = self.client.post("/api/chat", json={"question": "오늘 이 시간에 뭘 챙기면 좋을까?", "outing_at": "2026-10-15T11:00:00+09:00"})
+        self.assertEqual(response.status_code, 200)
+        service.fetch.assert_called_once()
+        prompt = self.model.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn('"status": "available"', prompt)
+        self.assertIn('"precipitation_probability": 70', prompt)
+        self.assertIn("검증된 통계 요약", prompt)
+        self.assertIn("과거 통계와 혼합하지", prompt)
+        sent = self.model.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+        stored = self.store[response.json()["conversation_id"]]["messages"][0]["content"]
+        self.assertEqual(sent, "오늘 이 시간에 뭘 챙기면 좋을까?")
+        self.assertEqual(stored, sent)
+
+    def test_missing_or_wrong_day_weather_never_fetches_or_calls_gpt(self):
+        from tests.test_weather import NOW
+        from backend.weather import WeatherService
+        for selected in ("2026-10-15T11:00:00+09:00", "2026-10-14T11:00:00+09:00"):
+            service = WeatherService(enabled=True, now=lambda: NOW)
+            service.fetch = Mock()
+            self.client.app.state.weather_service = service
+            response = self.client.post("/api/chat", json={"question": "날씨를 알려주세요.", "outing_at": selected})
+            self.assertEqual(response.status_code, 412)
+            service.fetch.assert_not_called()
+            self.sdk.assert_not_called()
+            self.assertEqual(self.store, {})
+            self.assertEqual(len(self.client.app.state.chat_limiter.attempts), 0)
+
+    def test_expired_cache_and_just_passed_time_never_call_gpt_or_write(self):
+        from tests.test_weather import NOW, payload
+        from backend.weather import WeatherService
+        for expired in (True, False):
+            clock = Mock(return_value=NOW)
+            tick = Mock(return_value=100)
+            service = WeatherService(enabled=True, now=clock, monotonic=tick)
+            service.fetch = Mock(return_value=payload())
+            service.recommend("11:00")
+            if expired:
+                tick.return_value = 701
+            else:
+                clock.return_value = NOW.replace(hour=2, second=1)
+            self.client.app.state.weather_service = service
+            response = self.client.post("/api/chat", json={"question": "추천해 주세요.", "outing_at": "2026-10-15T11:00:00+09:00"})
+            self.assertEqual(response.status_code, 412)
+            service.fetch.assert_called_once()
+            self.sdk.assert_not_called()
+            self.assertEqual(self.store, {})
+            self.assertEqual(len(self.client.app.state.chat_limiter.attempts), 0)
+
+    def test_client_weather_facts_and_naive_timestamps_are_rejected(self):
+        for fields in ({"weather": {"temperature_2m": 99}}, {"outing_at": "2026-10-15T11:00:00"}):
+            response = self.client.post("/api/chat", json={"question": "날씨", **fields})
+            self.assertEqual(response.status_code, 422)
+        self.sdk.assert_not_called()
+
+    def test_weather_lookup_does_not_call_gpt_or_initialize_storage(self):
+        from tests.test_weather import NOW, payload
+        from backend.weather import WeatherService
+        service = WeatherService(enabled=True, now=lambda: NOW)
+        service.fetch = Mock(return_value=payload())
+        self.client.app.state.weather_service = service
+        response = self.client.get("/api/outing-recommendation?time=11:00")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "available")
+        self.sdk.assert_not_called()
+        self.firebase.assert_not_called()
+        self.assertEqual(self.store, {})
+        self.assertEqual(len(self.client.app.state.chat_limiter.attempts), 0)
+
+    def test_emphasis_instructions_preserve_verified_weather_rules(self):
+        self.assertEqual(self.ask().status_code, 200)
+        prompt = self.model.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        for phrase in ("핵심 수치에 **볼드**", "실제로 챙기도록 권하는", "최대 4개", "필요하지 않음", "서식을 위해 준비물을 추가", "과거 관측치를 실시간 날씨나 미래 예보로 표현하지"):
+            self.assertIn(phrase, prompt)
 
 
 if __name__ == "__main__":
