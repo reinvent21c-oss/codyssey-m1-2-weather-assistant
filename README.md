@@ -11,6 +11,40 @@ B-1의 기본 화면은 **브리와 대화**입니다. 기존 브리 PNG와 하�
 > `LIVE_WEATHER_ENABLED` 기본값은 `false`이며, 비활성화 시 “실제 날씨 추천 기능이 아직 활성화되지 않았습니다.”를 표시합니다.
 > 실제 날씨 조회 성공이나 운영 서비스 반영을 의미하는 안내가 아닙니다.
 
+### Open-Meteo 429 백업 — WeatherAPI.com
+
+기본 제공자는 Open-Meteo입니다. HTTP **429**가 발생하고 서버에 `WEATHERAPI_KEY`가
+설정된 경우에만 `https://api.weatherapi.com/v1/forecast.json`으로 서울 좌표
+`37.5665,126.9780`, `days=2`를 조회합니다. 키가 없거나 다른 오류이면 기존 동작을
+유지하며, 두 제공자가 실패하면 수치를 만들지 않고 `unavailable`을 반환합니다.
+
+WeatherAPI의 서울 시간대, 오늘·다음 날 각각 24개 정각과 네 필드의 숫자·범위를
+검증한 뒤 기존 응답 형식으로 변환합니다. `temp_c`, `chance_of_rain`, `precip_mm`을
+사용하고 풍속 `wind_kph`는 **3.6으로 나눠 m/s**로 변환합니다. 결측값이나 문자열
+숫자를 0으로 채우지 않습니다. 다음 날 00:00도 보존해 오늘 23:30 선택을 처리합니다.
+
+성공한 백업은 기존 인스턴스별 10분 캐시에 저장됩니다. 만료 후에는 다시 기본 제공자부터
+시도하며, 두 제공자 실패 시 기존 600초 재시도 억제를 유지합니다. GPT는 `cached_only`
+검증으로 같은 캐시만 읽고 날씨를 다시 조회하지 않습니다.
+
+`source`·`source_url`과 채팅·상세 화면은 실제 제공자를 표시합니다. WeatherAPI에는
+Open-Meteo의 CC BY 4.0을 붙이지 않고 [WeatherAPI.com](https://www.weatherapi.com/)으로
+링크합니다. WeatherAPI 시간대별 강수 예보에 Open-Meteo의 이전 1시간 해석을 적용하지
+않습니다. 과거 관측 자료와 예보의 구분은 유지합니다.
+
+승인 후 Render 백엔드 환경변수에만 `WEATHERAPI_KEY`를 비공개로 등록하고, 기존
+`LIVE_WEATHER_ENABLED=true` 설정을 확인하세요. 키를 브라우저·URL 공유·저장소에 넣지
+마세요. SDK의 키 포함 URL 자동 로그도 차단하고 고정 진단 코드만 기록합니다.
+계정의 2일 예보 권한·무료 한도·최신 이용/출처 조건은 실제 연결 전 운영자가 확인해야 합니다.
+두 제공자를 순차 호출하므로 실패 시 지연이 늘 수 있습니다(각 요청 단계 timeout 5초).
+
+이 변경은 Mock 검증 대상이며 실제 WeatherAPI/Open-Meteo·GPT 호출, Firestore 쓰기,
+운영 환경변수 변경·배포·main 반영은 수행하지 않습니다. 별도 승인 후 실제 연결을 확인합니다.
+
+백업 변경 검증: Python 오프라인 161 PASS, JavaScript 24 PASS, Playwright 47 PASS / 2 FAIL.
+추가한 PC·모바일 제공자 출처 검사는 통과했습니다. 실패 2건은 기존 360px·390px 입력
+포커스 검사(`composerAccessible`)이며 이번 작업에서 화면이나 검증 조건을 완화하지 않았습니다.
+
 ## 과제 필수 4기능
 
 | 기능 | 구현과 평가 시 확인할 내용 |

@@ -1,5 +1,17 @@
 // Pure UI validity checks. The server rechecks its cache before paid AI work.
 export const OUTING_QUESTION = "오늘 이 시간에 뭘 챙기면 좋을까?";
+export function weatherAttribution(result) {
+  // Only fixed provider links are clickable; never trust a response-supplied URL.
+  if (result.source === "Open-Meteo" && result.source_url === "https://open-meteo.com/") {
+    return { name: result.source, url: result.source_url, licence: true,
+      precipitationNote: "강수확률·강수량은 예보 시각 전 1시간의 예측값이며 실제 관측이 아니에요." };
+  }
+  if (result.source === "WeatherAPI.com" && result.source_url === "https://www.weatherapi.com/") {
+    return { name: result.source, url: result.source_url, licence: false,
+      precipitationNote: "강수확률·강수량은 WeatherAPI.com의 해당 시간대 예보이며 실제 관측이 아니에요." };
+  }
+  throw new Error("Unrecognized weather source");
+}
 export function outingValidity(result, now = Date.now(), selectedTime) {
   const invalid = reason => ({ valid: false, reason });
   if (!result || result.status !== "available") return invalid("외출 시각을 선택하고 날씨를 먼저 확인해 주세요.");

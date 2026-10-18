@@ -1,6 +1,6 @@
 import { createApi, errorMessage, validRecord } from "./api.js";
 import { chartMessage, renderTemperatureChart } from "./chart.js";
-import { outingValidity, OUTING_QUESTION } from "./outing.js";
+import { outingValidity, OUTING_QUESTION, weatherAttribution } from "./outing.js";
 import { renderAssistantText } from "./emphasis.js";
 
 const $ = id => document.getElementById(id);
@@ -283,14 +283,23 @@ function renderChatOuting(result) {
   }
   target.append(metrics, element("p", `선택 오늘 ${result.requested_at.slice(11, 16)} · 예보 ${forecastDay} ${result.forecast_at.slice(11, 16)}`, "forecast-time"),
     element("p", `예보 강수량 ${result.weather.precipitation} mm${result.offset_minutes ? ` · ${result.offset_minutes}분 뒤 예보 사용` : ""}`, "muted small"));
-  const source = element("p", undefined, "forecast-source");
-  const link = element("a", "Open-Meteo"); link.href = "https://open-meteo.com/";
-  const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
-  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(` · 조회 ${result.fetched_at.slice(11, 16)}`));
+  const provider = weatherAttribution(result);
+  const source = renderWeatherSource(provider, "forecast-source");
+  source.append(document.createTextNode(` · 조회 ${result.fetched_at.slice(11, 16)}`));
   target.append(source);
   const note = element("details", undefined, "forecast-note");
-  note.append(element("summary", "예보 기준과 한계"), element("p", "시각은 서울(Asia/Seoul) 기준이며 서버 조회 시각을 표시해요. 모델 발표 시각은 미확인이에요. 강수확률·강수량은 예보 시각 전 1시간의 예측값이며 실제 관측이 아니에요. 예보를 요약한 자료로, 외출 전체 시간의 날씨를 보장하지 않아요.", "muted small"));
+  note.append(element("summary", "예보 기준과 한계"), element("p", `시각은 서울(Asia/Seoul) 기준이며 서버 조회 시각을 표시해요. 모델 발표 시각은 미확인이에요. ${provider.precipitationNote} 예보를 요약한 자료로, 외출 전체 시간의 날씨를 보장하지 않아요.`, "muted small"));
   target.append(note);
+}
+function renderWeatherSource(provider, className) {
+  const source = element("p", undefined, className);
+  const link = element("a", provider.name); link.href = provider.url;
+  source.append(link);
+  if (provider.licence) {
+    const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
+    source.append(document.createTextNode(" · "), licence);
+  }
+  return source;
 }
 function renderOuting(result) {
   if (result.status !== "available" || !result.weather) throw new Error("unavailable");
@@ -299,17 +308,17 @@ function renderOuting(result) {
   if ([result.requested_at, result.forecast_at, result.fetched_at].some(value => typeof value !== "string" || !Number.isFinite(new Date(value).getTime()))) throw new Error("unavailable");
   const target = $("outing-result");
   target.replaceChildren();
-  const source = element("p", undefined, "muted small");
-  const link = element("a", "날씨 데이터 제공: Open-Meteo"); link.href = "https://open-meteo.com/";
-  const licence = element("a", "CC BY 4.0"); licence.href = "https://creativecommons.org/licenses/by/4.0/";
-  source.append(link, document.createTextNode(" · "), licence, document.createTextNode(" · 예보를 규칙 기반 추천으로 가공했어요."));
+  const provider = weatherAttribution(result);
+  const source = renderWeatherSource(provider, "muted small");
+  source.prepend(document.createTextNode("날씨 데이터 제공: "));
+  source.append(document.createTextNode(" · 예보를 규칙 기반 추천으로 가공했어요."));
   target.append(source, element("p", `선택 시각: ${formatTime(result.requested_at)} · 예보 시각: ${formatTime(result.forecast_at)} (Asia/Seoul)`));
   if (result.offset_minutes) target.append(element("p", `선택 시각보다 ${result.offset_minutes}분 뒤의 다음 정각 예보를 사용했어요.`, "muted"));
   target.append(element("p", `서버 조회 시각: ${formatTime(result.fetched_at)} · 제공자의 모델 발표 시각은 확인되지 않았어요.`, "muted small"));
   const weather = result.weather;
   const measurement = (value, unit) => typeof value === "number" && Number.isFinite(value) ? `${value}${unit}` : "확인 불가";
   target.append(element("p", `예보 기온 ${measurement(weather.temperature_2m, "°C")} · 강수확률 ${measurement(weather.precipitation_probability, "%")} · 예보 강수량 ${measurement(weather.precipitation, " mm")} · 풍속 ${measurement(weather.wind_speed_10m, " m/s")}`));
-  target.append(element("p", "강수확률과 강수량은 예보 시각 이전 1시간 구간의 예측값이에요. 실제 측정 강수량이 아니며, 전체 외출 시간의 날씨를 보장하지 않아요.", "muted small"));
+  target.append(element("p", `${provider.precipitationNote} 전체 외출 시간의 날씨를 보장하지 않아요.`, "muted small"));
   for (const [heading, content] of [["옷차림", result.clothing], ["우산", result.umbrella], ["준비물", result.items.join(" · ")], ["추천 이유", result.reasons.join(" ")]]) {
     target.append(element("h2", heading), element("p", content));
   }

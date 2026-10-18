@@ -27,10 +27,13 @@ def system_prompt(summary: DataSummary, weather_context=None):
     validated = DataSummary.model_validate(summary.model_dump())
     forecast_instruction = ""
     if weather_context is not None:
+        precipitation_note = ("강수확률은 확률이며 강수량은 WeatherAPI.com의 해당 시간대 예보입니다. "
+                              if weather_context.get("source") == "WeatherAPI.com" else
+                              "강수확률은 확률이며 강수량은 예보 시각 이전 1시간의 예측 합계입니다. ")
         forecast_instruction = (
             "아래 서울 시간대별 예보 Context는 서버가 확인한 별도 자료이며 과거 통계와 혼합하지 마세요. "
             "status가 available인 경우에만 지정된 requested_at/forecast_at의 예보 수치를 인용하세요. "
-            "실시간 관측이나 전체 외출 시간의 날씨로 표현하지 마세요. 강수확률은 확률이며 강수량은 예보 시각 이전 1시간의 예측 합계입니다. "
+            "실시간 관측이나 전체 외출 시간의 날씨로 표현하지 마세요. " + precipitation_note +
             "fetched_at은 서버 조회 시각이고 모델 발표 시각이 아닙니다. 다른 지역은 지원하지 않습니다. "
             "status가 unavailable이거나 필드가 없으면 현재 날씨 정보 확인 불가라고 안내하고 수치를 추측하지 마세요. "
             "이전 대화에 있는 날씨 수치를 현재 정보처럼 재사용하지 마세요.\n"

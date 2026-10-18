@@ -382,6 +382,29 @@ class ChatApiTests(unittest.TestCase):
         self.assertEqual(sent, "오늘 이 시간에 뭘 챙기면 좋을까?")
         self.assertEqual(stored, sent)
 
+    def test_weatherapi_context_uses_validated_cache_without_provider_refetch(self):
+        from tests.test_weather import NOW
+        from tests.test_weatherapi import weatherapi_payload
+        from backend.weather import WeatherService
+        tick = Mock(return_value=100)
+        service = WeatherService(enabled=True, now=lambda: NOW, monotonic=tick)
+        service.fetch = Mock(return_value=WeatherService.normalize_weatherapi(weatherapi_payload(), "2026-10-15"))
+        self.client.app.state.weather_service = service
+        result = self.client.get("/api/outing-recommendation?time=11:00").json()
+        self.assertEqual(result["source"], "WeatherAPI.com")
+        request = {"question": "이 시간에 뭘 챙기면 좋을까?", "outing_at": "2026-10-15T11:00:00+09:00"}
+        self.assertEqual(self.client.post("/api/chat", json=request).status_code, 200)
+        service.fetch.assert_called_once()
+        prompt = self.model.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn('"source": "WeatherAPI.com"', prompt)
+        self.assertIn('"wind_speed_10m": 10.0', prompt)
+        self.assertIn("WeatherAPI.com의 해당 시간대 예보", prompt)
+        self.assertNotIn("강수량은 예보 시각 이전 1시간", prompt)
+        tick.return_value = 700
+        self.assertEqual(self.client.post("/api/chat", json=request).status_code, 412)
+        service.fetch.assert_called_once()
+        self.model.chat.completions.create.assert_called_once()
+
     def test_missing_or_wrong_day_weather_never_fetches_or_calls_gpt(self):
         from tests.test_weather import NOW
         from backend.weather import WeatherService

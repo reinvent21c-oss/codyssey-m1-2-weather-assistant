@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { weatherAttribution } from "../outing.js";
+
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { ApiError, createApi, errorMessage, validRecord } from "../api.js";
@@ -170,4 +172,19 @@ test("강조: 물품 색상은 최대 네 개이고 줄바꿈과 강조 밖 내�
   const tokens = emphasisTokens("***첫 물품***\n***둘째 물품***\n***셋째 물품***\n***넷째 물품***\n***다섯째 물품***");
   assert.equal(tokens.filter(token => token.type === "item").length, 4);
   assert.equal(tokens.map(token => token.text).join(""), "첫 물품\n둘째 물품\n셋째 물품\n넷째 물품\n다섯째 물품");
+});
+
+test("weather source and licence match only the recognized provider", () => {
+  const primary = weatherAttribution({ source: "Open-Meteo", source_url: "https://open-meteo.com/" });
+  assert.equal(primary.licence, true);
+  assert.match(primary.precipitationNote, /전 1시간/);
+  const backup = weatherAttribution({ source: "WeatherAPI.com", source_url: "https://www.weatherapi.com/" });
+  assert.equal(backup.licence, false);
+  assert.equal(backup.name, "WeatherAPI.com");
+  assert(!backup.precipitationNote.includes("전 1시간"));
+  for (const result of [
+    { source: "WeatherAPI.com", source_url: "javascript:alert(1)" },
+    { source: '<img src=x onerror="alert(1)">', source_url: "https://www.weatherapi.com/" },
+    { source: "WeatherAPI.com", source_url: "https://open-meteo.com/" }, {},
+  ]) assert.throws(() => weatherAttribution(result));
 });

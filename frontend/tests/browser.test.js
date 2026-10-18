@@ -28,7 +28,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await new Promise(resolve => server?.close(resolve)); });
 
-async function fixture({ chatReply, historyReply, weatherDelay = 0, initialView = "chat", weatherUnavailable = false, mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
+async function fixture({ weatherSource = "Open-Meteo", chatReply, historyReply, weatherDelay = 0, initialView = "chat", weatherUnavailable = false, mobile = false, empty = false, chatError = 0, dataError = 0, observations, dataReadError = 0, authenticate = true, role = "admin", hosted = false } = {}) {
   const pageOrigin = hosted ? "https://bree-test.vercel.app" : origin;
   const apiOrigin = hosted ? "https://codyssey-m1-2-weather-assistant.onrender.com" : "http://127.0.0.1:8000";
   const context = await browser.newContext({ locale: "ko-KR", viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
@@ -68,6 +68,7 @@ async function fixture({ chatReply, historyReply, weatherDelay = 0, initialView 
       forecast.setUTCMinutes(0); if (!selected.endsWith(":00")) forecast.setTime(forecast.getTime() + 3600000);
       const forecastAt = new Date(forecast.getTime() + 9 * 3600000).toISOString().slice(0, 19) + "+09:00";
       result = weatherUnavailable ? { status: "unavailable", message: "현재 날씨 정보 확인 불가" } : {
+        source: weatherSource, source_url: weatherSource === "WeatherAPI.com" ? "https://www.weatherapi.com/" : "https://open-meteo.com/",
         status: "available", location: "서울", timezone: "Asia/Seoul", requested_at: requested,
         forecast_at: forecastAt, offset_minutes: (forecast.getTime() - Date.parse(requested)) / 60000,
         fetched_at: "2026-10-15T10:00:00+09:00", valid_until: "2026-10-15T10:10:00+09:00",
@@ -477,9 +478,34 @@ for (const mobile of [false, true]) {
       assert(text.indexOf("옷차림") < text.indexOf("우산"));
       assert(text.indexOf("준비물") < text.indexOf("추천 이유"));
       assert.equal(await page.locator('#outing-result a[href="https://open-meteo.com/"]').count(), 1);
+      assert.equal(await page.locator('#outing-result a[href="https://creativecommons.org/licenses/by/4.0/"]').count(), 1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.equal(calls.filter(call => call.path === "/api/outing-recommendation").length, 1);
       await page.screenshot({ path: `${root}test-results/outing-${mobile ? "mobile" : "desktop"}.png`, fullPage: true });
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  });
+}
+for (const mobile of [false, true]) {
+  test(`WeatherAPI attribution: ${mobile ? "mobile" : "desktop"} chat and detail never claim Open-Meteo licence`, async () => {
+    const { page, context, calls, errors } = await fixture({ mobile, weatherSource: "WeatherAPI.com" });
+    try {
+      await page.locator("#chat-outing-time").fill("10:30");
+      await page.locator("#chat-outing-submit").click();
+      await page.waitForFunction(() => !document.getElementById("recommend-outing").disabled);
+      for (const selector of ["#chat-outing-result", "#outing-result"]) {
+        const text = await page.locator(selector).textContent();
+        assert(text.includes("WeatherAPI.com"));
+        assert(!text.includes("Open-Meteo"));
+        assert(!text.includes("CC BY"));
+        assert(!text.includes("전 1시간"));
+        assert.equal(await page.locator(`${selector} a[href="https://www.weatherapi.com/"]`).count(), 1);
+        assert.equal(await page.locator(`${selector} a[href*="creativecommons"]`).count(), 0);
+      }
+      await page.locator(mobile ? "#mobile-outing" : "#outing-tab").click();
+      assert(await page.locator("#outing-result").isVisible());
+      assert.equal(calls.filter(call => call.path === "/api/outing-recommendation").length, 1);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.deepEqual(errors, []);
     } finally { await context.close(); }
   });
@@ -541,7 +567,7 @@ test("외출 준비: 강수 예측이 0이어도 맑음을 단정하지 않아�
   try {
     await context.route("**/api/outing-recommendation?**", route => route.fulfill({
       status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": new URL(page.url()).origin },
-      body: JSON.stringify({ status: "available", requested_at: "2026-10-15T10:30:00+09:00", forecast_at: "2026-10-15T11:00:00+09:00", offset_minutes: 30,
+      body: JSON.stringify({ status: "available", source: "Open-Meteo", source_url: "https://open-meteo.com/", requested_at: "2026-10-15T10:30:00+09:00", forecast_at: "2026-10-15T11:00:00+09:00", offset_minutes: 30,
         fetched_at: "2026-10-15T10:00:00+09:00", weather: { temperature_2m: 0, precipitation_probability: 0, precipitation: 0, wind_speed_10m: 0 },
         clothing: "두꺼운 외투", umbrella: "강수 가능성은 낮아요. 이후 변화를 다시 확인해요.", items: ["목도리"], reasons: ["예보 기온을 참고했어요."] })
     }));

@@ -17,10 +17,22 @@ from fastapi import APIRouter, Request
 SEOUL = timezone(timedelta(hours=9), "Asia/Seoul")
 FIELDS = {"temperature_2m": ("°C", -90, 60), "precipitation_probability": ("%", 0, 100),
           "precipitation": ("mm", 0, 1000), "wind_speed_10m": ("m/s", 0, 150)}
+SOURCES = {"open_meteo": ("Open-Meteo", "https://open-meteo.com/"),
+           "weatherapi": ("WeatherAPI.com", "https://www.weatherapi.com/")}
 router = APIRouter(prefix="/api", tags=["outing"])
 # Inherit Uvicorn's INFO console handler so Render sees success/backoff events
 # without changing application-wide logging or logging request/exception objects.
 logger = logging.getLogger("uvicorn.error.weather")
+
+
+def _hide_weather_urls(record):
+    # HTTPX's INFO request log includes the full URL/params and WeatherAPI's
+    # secret query key. Drop provider URL events even with root logging at INFO.
+    args = record.args if isinstance(record.args, tuple) else ()
+    return not any(isinstance(arg, httpx.URL) and arg.host in ("api.open-meteo.com", "api.weatherapi.com") for arg in args)
+
+
+logging.getLogger("httpx").addFilter(_hide_weather_urls)
 
 
 class _InvalidForecast(ValueError):
@@ -53,8 +65,69 @@ class WeatherService:
                 "precipitation_unit": "mm", "wind_speed_unit": "ms",
                 "start_date": day, "end_date": (datetime.fromisoformat(day) + timedelta(days=1)).date().isoformat(),
             })
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                key = os.getenv("WEATHERAPI_KEY", "").strip()
+                if exc.response.status_code != 429 or not key:
+                    raise
+                logger.warning("weather reason=provider_http_error http_status=429 provider=open_meteo")
+                logger.info("weather reason=fallback_started provider=weatherapi")
+                try:
+                    body = self.fetch_weatherapi(day, key)
+                    logger.info("weather reason=fallback_success provider=weatherapi")
+                    return body
+                except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError):
+                    logger.warning("weather reason=fallback_failed provider=weatherapi")
+                    raise
+            body = response.json()
+            if isinstance(body, dict):
+                body["_provider"] = "open_meteo"
+            return body
+
+    def fetch_weatherapi(self, day, key):
+        with httpx.Client(timeout=5.0, follow_redirects=False, trust_env=False) as client:
+            response = client.get("https://api.weatherapi.com/v1/forecast.json", params={
+                "key": key, "q": "37.5665,126.9780", "days": 2,
+            })
             response.raise_for_status()
-            return response.json()
+            return self.normalize_weatherapi(response.json(), day)
+
+    @staticmethod
+    def normalize_weatherapi(body, day):
+        """Accept two complete Seoul forecast days, copying only known fields."""
+        try:
+            if body["location"]["tz_id"] != "Asia/Seoul":
+                raise _InvalidForecast("invalid_timezone")
+            days = body["forecast"]["forecastday"]
+            if not isinstance(days, list) or len(days) != 2:
+                raise _InvalidForecast("invalid_hour_array")
+            hourly = {"time": [], **{field: [] for field in FIELDS}}
+            mapping = {"temperature_2m": ("temp_c", 1), "precipitation_probability": ("chance_of_rain", 1),
+                       "precipitation": ("precip_mm", 1), "wind_speed_10m": ("wind_kph", 3.6)}
+            for offset, forecast in enumerate(days):
+                start = datetime.fromisoformat(day) + timedelta(days=offset)
+                if forecast["date"] != start.date().isoformat():
+                    raise _InvalidForecast("invalid_forecast_date")
+                hours = forecast["hour"]
+                if not isinstance(hours, list) or len(hours) != 24:
+                    raise _InvalidForecast("invalid_hour_array")
+                for index, hour in enumerate(hours):
+                    expected = start + timedelta(hours=index)
+                    if hour["time"] != expected.strftime("%Y-%m-%d %H:00"):
+                        raise _InvalidForecast("invalid_timestamp")
+                    hourly["time"].append(expected.isoformat(timespec="minutes"))
+                    for field, (original, divisor) in mapping.items():
+                        value = hour[original]
+                        _, low, high = FIELDS[field]
+                        if type(value) not in (int, float) or not low * divisor <= value <= high * divisor or not math.isfinite(value):
+                            raise _InvalidForecast("missing_value" if value is None else "invalid_value", field)
+                        hourly[field].append(value / divisor if divisor != 1 else value)
+            return {"timezone": "Asia/Seoul", "utc_offset_seconds": 32400,
+                    "hourly_units": {field: spec[0] for field, spec in FIELDS.items()},
+                    "hourly": hourly, "_provider": "weatherapi"}
+        except (KeyError, TypeError, IndexError):
+            raise _InvalidForecast("invalid_structure") from None
 
     def recommend(self, selected, *, cached_only=False):
         now = self.now().astimezone(SEOUL)
@@ -106,6 +179,8 @@ class WeatherService:
                 body = self.cache
                 fetched_at = self.fetched_at
                 expires = self.expires
+            source, source_url = SOURCES.get(body.get("_provider"), SOURCES["open_meteo"])
+            result.update(source=source, source_url=source_url)
             # Recheck after I/O: don't return yesterday's selection across midnight.
             checked_at = self.now().astimezone(SEOUL)
             remaining = expires - self.monotonic()
