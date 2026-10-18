@@ -1,5 +1,7 @@
 """Offline weather contract: all provider responses are mocked."""
 import copy
+import io
+import logging
 import os
 import unittest
 from datetime import datetime, timezone
@@ -203,3 +205,180 @@ class WeatherTests(unittest.TestCase):
         self.monotonic.return_value = 400
         result = self.service.recommend("11:00")
         self.assertEqual(result["valid_until"], "2026-10-15T10:05:00+09:00")
+
+    def assert_safe_diagnostics(self, capture):
+        for record in capture.records:
+            self.assertNotIn("PRIVATE_SENTINEL", record.getMessage())
+            self.assertIsNone(record.exc_info)
+            self.assertIsNone(record.stack_info)
+
+    def test_provider_failure_diagnostics_never_log_exception_or_response_content(self):
+        request = httpx.Request("GET", "https://example.invalid/PRIVATE_SENTINEL",
+                                headers={"X-Evaluation-Code": "PRIVATE_SENTINEL"})
+        response = httpx.Response(429, request=request, text="PRIVATE_SENTINEL",
+                                  headers={"X-Private": "PRIVATE_SENTINEL"})
+        errors = [
+            (httpx.ReadTimeout("PRIVATE_SENTINEL"), "provider_timeout"),
+            (httpx.HTTPStatusError("PRIVATE_SENTINEL", request=request, response=response),
+             "provider_http_error http_status=429"),
+            (httpx.ConnectError("PRIVATE_SENTINEL"), "provider_transport_error"),
+            (ValueError("PRIVATE_SENTINEL"), "invalid_json"),
+        ]
+        for error, reason in errors:
+            with self.subTest(reason=reason):
+                service = WeatherService(enabled=True, now=self.clock, monotonic=self.monotonic)
+                service.fetch = Mock(side_effect=error)
+                with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                    result = service.recommend("11:00")
+                self.assertEqual(result["status"], "unavailable")
+                self.assertEqual([record.getMessage() for record in logs.records], [f"weather reason={reason}"])
+                self.assertEqual(logs.records[0].levelname, "WARNING")
+                self.assertIsNone(service.cache)
+                self.assertEqual(service.retry_at, 700)
+                self.assertNotIn("PRIVATE_SENTINEL", str(result))
+                self.assert_safe_diagnostics(logs)
+
+    def test_structure_diagnostics_distinguish_validation_without_raw_values(self):
+        cases = [
+            (lambda body: body.update(timezone="PRIVATE_SENTINEL"), "invalid_timezone field=none"),
+            (lambda body: body["hourly"].update(time=[]), "invalid_hour_array field=none"),
+            (lambda body: body["hourly"]["time"].__setitem__(11, "PRIVATE_SENTINEL"), "invalid_timestamp field=none"),
+            (lambda body: body["hourly"]["time"].__setitem__(11, "2026-13-15T11:00"), "invalid_timestamp field=none"),
+            (lambda body: body["hourly"]["time"].__setitem__(11, body["hourly"]["time"][10]), "unordered_hours field=none"),
+            (lambda body: body["hourly_units"].update(wind_speed_10m="PRIVATE_SENTINEL"), "invalid_units_or_array field=wind_speed_10m"),
+            (lambda body: body["hourly"]["precipitation"].pop(), "invalid_units_or_array field=precipitation"),
+            (lambda body: body.pop("hourly"), "invalid_structure"),
+        ]
+        for mutate, reason in cases:
+            with self.subTest(reason=reason):
+                body = payload(); mutate(body)
+                service = WeatherService(enabled=True, now=self.clock, monotonic=self.monotonic)
+                service.fetch = Mock(return_value=body)
+                with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                    self.assertEqual(service.recommend("11:00")["status"], "unavailable")
+                self.assertEqual([record.getMessage() for record in logs.records], [f"weather reason={reason}"])
+                self.assertEqual(service.retry_at, 700)
+                self.assert_safe_diagnostics(logs)
+
+    def test_value_diagnostics_preserve_cached_data_for_other_hours(self):
+        for value in (None, "PRIVATE_SENTINEL", True, float("nan"), float("inf"), 101):
+            with self.subTest(value_type=type(value).__name__):
+                body = payload(); body["hourly"]["precipitation_probability"][11] = value
+                service = WeatherService(enabled=True, now=self.clock, monotonic=self.monotonic)
+                service.fetch = Mock(return_value=body)
+                with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                    self.assertEqual(service.recommend("11:00")["status"], "unavailable")
+                    self.assertEqual(service.recommend("12:00")["status"], "available")
+                reason = "missing_value" if value is None else "invalid_value"
+                self.assertIn(f"weather reason={reason} field=precipitation_probability", [r.getMessage() for r in logs.records])
+                self.assertEqual(service.retry_at, 0)
+                service.fetch.assert_called_once()
+                self.assert_safe_diagnostics(logs)
+
+    def test_target_hour_diagnostic_does_not_invalidate_other_cached_hours(self):
+        for values in self.body["hourly"].values():
+            values.pop(11)
+        with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+            self.assertEqual(self.service.recommend("10:30")["status"], "unavailable")
+            self.assertEqual(self.service.recommend("12:00")["status"], "available")
+        self.assertIn("weather reason=target_hour_missing", [r.getMessage() for r in logs.records])
+        self.assertEqual(self.service.retry_at, 0)
+        self.fetch.assert_called_once()
+
+    def test_time_disabled_and_cached_only_diagnostics_do_not_fetch(self):
+        for selected, reason in (("PRIVATE_SENTINEL", "invalid_time"), ("09:59", "past_time")):
+            with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                self.assertEqual(self.service.recommend(selected)["status"], "unavailable")
+            self.assertEqual(logs.records[0].getMessage(), f"weather reason={reason}")
+            self.assert_safe_diagnostics(logs)
+        with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+            self.service.recommend("11:00", cached_only=True)
+            self.service.enabled = False
+            self.service.recommend("11:00")
+        self.assertEqual([r.getMessage() for r in logs.records], ["weather reason=cache_unavailable", "weather reason=disabled"])
+        self.fetch.assert_not_called()
+
+    def test_post_fetch_time_diagnostics(self):
+        cases = [
+            ([NOW, NOW.replace(second=1), NOW.replace(second=1)], [100, 100, 100], "departure_passed"),
+            ([NOW.replace(hour=14), NOW.replace(day=16), NOW.replace(day=16)], [100, 100, 100], "day_changed"),
+            ([NOW, NOW, NOW], [100, 100, 700], "cache_expired"),
+        ]
+        for times, ticks, reason in cases:
+            with self.subTest(reason=reason):
+                service = WeatherService(enabled=True, now=Mock(side_effect=times), monotonic=Mock(side_effect=ticks))
+                service.fetch = Mock(return_value=payload())
+                with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                    selected = "10:00" if reason == "departure_passed" else "23:00"
+                    self.assertEqual(service.recommend(selected)["status"], "unavailable")
+                self.assertEqual([r.getMessage() for r in logs.records], ["weather reason=provider_fetch_success", f"weather reason={reason}"])
+
+    def test_success_failure_backoff_and_recovery_have_distinct_diagnostics(self):
+        with self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+            self.assertEqual(self.service.recommend("11:00")["status"], "available")
+            self.monotonic.return_value = 699
+            self.assertEqual(self.service.recommend("11:00")["status"], "available")
+            self.fetch.assert_called_once()
+            self.monotonic.return_value = 700
+            self.fetch.side_effect = httpx.ReadTimeout("PRIVATE_SENTINEL")
+            self.assertEqual(self.service.recommend("11:00")["status"], "unavailable")
+            self.assertIsNone(self.service.cache)
+            self.service.recommend("11:00")
+            self.monotonic.return_value = 1299
+            self.service.recommend("11:00")
+            self.assertEqual(self.fetch.call_count, 2)
+            self.monotonic.return_value = 1300
+            self.fetch.side_effect = lambda date: copy.deepcopy(self.body)
+            self.assertEqual(self.service.recommend("11:00")["status"], "available")
+        messages = [r.getMessage() for r in logs.records]
+        self.assertEqual(messages, ["weather reason=provider_fetch_success", "weather reason=recommendation_available cache=fresh",
+                                   "weather reason=recommendation_available cache=hit", "weather reason=provider_timeout",
+                                   "weather reason=retry_suppressed", "weather reason=retry_suppressed",
+                                   "weather reason=provider_fetch_success", "weather reason=recommendation_available cache=fresh"])
+        self.assertEqual(self.service.expires, 1900)
+        self.assertEqual(self.service.retry_at, 0)
+        self.assertEqual(self.fetch.call_count, 3)
+        self.assert_safe_diagnostics(logs)
+
+    def test_info_diagnostics_reach_uvicorn_console_handler(self):
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        parent = logging.getLogger("uvicorn.error")
+        previous_level = parent.level
+        try:
+            parent.setLevel(logging.INFO)
+            with patch.object(parent, "handlers", [handler]), patch.object(parent, "propagate", False):
+                self.service.recommend("11:00")
+                self.monotonic.return_value = 700
+                self.fetch.side_effect = httpx.ReadTimeout("PRIVATE_SENTINEL")
+                self.service.recommend("11:00")
+                self.service.recommend("11:00")
+        finally:
+            parent.setLevel(previous_level)
+        text = stream.getvalue()
+        self.assertIn("INFO weather reason=provider_fetch_success", text)
+        self.assertIn("INFO weather reason=recommendation_available cache=fresh", text)
+        self.assertIn("WARNING weather reason=provider_timeout", text)
+        self.assertIn("INFO weather reason=retry_suppressed", text)
+        self.assertNotIn("PRIVATE_SENTINEL", text)
+
+    def test_route_logs_do_not_expose_credentials_or_change_unavailable_contract(self):
+        with patch.dict(os.environ, {"EVALUATION_ACCESS_CODE": "PRIVATE_SENTINEL"}, clear=True), patch("backend.main.load_dotenv"):
+            app = create_app(); app.state.weather_service = self.service
+            self.fetch.side_effect = httpx.ReadTimeout("PRIVATE_SENTINEL")
+            with TestClient(app) as client, self.assertLogs("uvicorn.error.weather", level="INFO") as logs:
+                response = client.get("/api/outing-recommendation?time=11:00", headers={"X-Evaluation-Code": "PRIVATE_SENTINEL"})
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertEqual(body["status"], "unavailable")
+            self.assertEqual(body["message"], "현재 날씨 정보 확인 불가. 잠시 후 다시 확인해 주세요.")
+            self.assertEqual(body["requested_at"], "2026-10-15T11:00:00+09:00")
+            for key in ("weather", "forecast_at", "fetched_at", "valid_until", "clothing", "umbrella"):
+                self.assertIsNone(body[key])
+            self.assertEqual(body["items"], [])
+            self.assertEqual(body["reasons"], [])
+            self.assertNotIn("reason", body)
+            self.assertNotIn("PRIVATE_SENTINEL", str(body))
+            self.assertEqual(logs.records[0].getMessage(), "weather reason=provider_timeout")
+            self.assert_safe_diagnostics(logs)
